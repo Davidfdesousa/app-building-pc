@@ -1,4 +1,4 @@
-# Monta PC — comparador de configurações
+# PC Builder — comparador de configurações
 
 App mobile-first pra montar e comparar duas configs de PC (CPU/GPU/RAM/placa-mãe/fonte/SSD),
 com dataset mockado (KaBuM!, pesquisa fixa) e uma aba de FPS estimado em 10 jogos, em dois

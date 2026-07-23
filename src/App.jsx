@@ -17,6 +17,7 @@ import {
   Tag,
   PackageCheck,
   PackageX,
+  Link as LinkIcon,
 } from "lucide-react";
 
 // lucide-react dropped brand/logo icons (Github included) some versions back,
@@ -40,7 +41,7 @@ function GithubMark({ size = 13 }) {
    MOCK API LAYER
    ----------------------------------------------------------------------------
    This simulates a backend. The dataset below was captured from real product
-   pages on KaBuM! during a research pass on 20/07/2026 — prices, PIX/cartão
+   pages on KaBuM! during a research pass on 23/07/2026 — prices, PIX/cartão
    conditions, stock and discounts are all sourced only from KaBuM! now (no
    Mercado Livre). The app does NOT hit KaBuM live on every load — it reads
    this frozen snapshot. Tapping "Atualizar pesquisa" simulates calling the
@@ -48,9 +49,11 @@ function GithubMark({ size = 13 }) {
    Claude in the chat, since this sandbox can't reach kabum.com.br directly.
 ============================================================================ */
 
-const RESEARCH_DATE = "2026-07-20";
+const RESEARCH_DATE = "2026-07-23";
 const SOURCES = ["KaBuM!"];
-const STORAGE_KEY = "monta-pc:v1";
+// Bumped to v2 after the 23/07/2026 price/stock refresh — the old cached
+// snapshot under v1 would otherwise mask the new prices for returning users.
+const STORAGE_KEY = "monta-pc:v2";
 const GITHUB_URL = "https://github.com/Davidfdesousa";
 
 const DB = {
@@ -61,8 +64,15 @@ const DB = {
       brand: "Intel",
       specs: "24 núcleos (8P+16E) · até 5.7GHz · desbloqueado p/ OC · LGA1851",
       tag: "Overclock",
-      price: 3569.99,
-      installment: "10x R$ 419,99",
+      // Índice de gaming (1080p, quanto mais CPU-bound mais aparece). Referência = 285K = 1.00.
+      // Base: 285K 144.9 fps vs 265K 138.8 fps (geomean 16 jogos, Tom's Hardware/Tech4Gamers).
+      cpuGameIndex: 1.0,
+      price: 3999.99,
+      priceOriginal: 5547.05,
+      pixDiscountPct: 15,
+      cardPrice: 4705.87,
+      cardInstallment: "10x R$ 470,58",
+      cardDiscountPct: 10,
       source: "KaBuM!",
       link: "https://www.kabum.com.br/produto/645177/processador-intel-core-ultra-9-285k-5-7ghz-ate-24-nucleos-com-suporte-a-pcie-5-0-e-4-0-e-suporte-a-ddr5-bx80768285k",
       inStock: true,
@@ -73,8 +83,14 @@ const DB = {
       brand: "Intel",
       specs: "24 núcleos (8P+16E) · até 5.6GHz · multiplicador travado · LGA1851",
       tag: "Normal",
-      price: 3411.75,
-      installment: "10x R$ 341,17",
+      // ~2% abaixo do 285K em jogos (clocks de boost menores, mesma config de núcleos) — interpolado.
+      cpuGameIndex: 0.98,
+      price: 2999.99,
+      priceOriginal: 5247.05,
+      pixDiscountPct: 15,
+      cardPrice: 3529.40,
+      cardInstallment: "10x R$ 352,94",
+      cardDiscountPct: 10,
       source: "KaBuM!",
       link: "https://www.kabum.com.br/produto/696996/processador-intel-core-ultra-9-desktop-processor-285-bx80768285",
       inStock: true,
@@ -85,8 +101,14 @@ const DB = {
       brand: "Intel",
       specs: "20 núcleos (8P+12E) · até 5.5GHz · desbloqueado p/ OC · LGA1851",
       tag: "Overclock",
-      price: 1899.99,
-      installment: "10x R$ 223,52",
+      // 138.8/144.9 = 0.958 vs 285K (geomean 16 jogos 1080p, Tom's Hardware/Tech4Gamers).
+      cpuGameIndex: 0.958,
+      price: 1999.99,
+      priceOriginal: 3529.40,
+      pixDiscountPct: 15,
+      cardPrice: 2352.93,
+      cardInstallment: "10x R$ 235,29",
+      cardDiscountPct: 10,
       source: "KaBuM!",
       link: "https://www.kabum.com.br/produto/645178/processador-intel-core-ultra-7-265k-5-5ghz-ate-20-nucleos-com-suporte-a-pcie-5-0-e-4-0-e-suporte-a-ddr5-bx80768265k",
       inStock: true,
@@ -97,8 +119,13 @@ const DB = {
       brand: "Intel",
       specs: "20 núcleos (8P+12E) · até 5.3GHz · multiplicador travado · LGA1851",
       tag: "Normal",
-      price: 3845.90,
-      installment: "10x R$ 384,59",
+      // ~1.5% abaixo do 265K em jogos (boost menor, sem OC) — interpolado.
+      cpuGameIndex: 0.945,
+      price: 3034.07,
+      pixDiscountPct: 8,
+      cardPrice: 3297.90,
+      cardInstallment: "10x R$ 329,79",
+      cardDiscountPct: 8,
       source: "KaBuM!",
       link: "https://www.kabum.com.br/produto/928069/processador-intel-265-core-ultra-7-1851-3-9-ghz-box-turbo-5-5-ghz-bx80768265",
       inStock: true,
@@ -106,20 +133,19 @@ const DB = {
     },
   ],
   gpu: [
-    // --- MSI Ventus (both tiers in stock — best discount on the 5070) ---
+    // --- MSI Ventus (both tiers ainda em estoque) ---
     {
       id: "gpu-msi-5070-ventus2x",
       name: "GeForce RTX 5070 Ventus 2X OC",
       brand: "MSI",
       line: "RTX 5070",
       specs: "12GB GDDR7 · 192-bit · 6144 CUDA · PCIe 5.0",
-      price: 4599.99,
-      priceOriginal: 7058.82,
+      price: 6000.00,
       pixDiscountPct: 15,
-      cardPrice: 5411.75,
-      cardInstallment: "10x R$ 541,17",
+      cardPrice: 7058.82,
+      cardInstallment: "10x R$ 705,88",
       cardDiscountPct: 10,
-      units: 26,
+      units: null,
       source: "KaBuM!",
       link: "https://www.kabum.com.br/produto/725587/placa-de-video-msi-geforce-rtx-5070-12g-ventus-2x-oc-12-gb-gddr7-28gbps-nvidia-geforce-rtx-5070-g5070-12v2c",
       inStock: true,
@@ -131,87 +157,44 @@ const DB = {
       brand: "MSI",
       line: "RTX 5070 Ti",
       specs: "16GB GDDR7 · 256-bit · 8960 CUDA · PCIe 5.0",
-      price: 10899.00,
-      cardPrice: 10899.00,
-      cardInstallment: "10x R$ 1.089,90",
+      price: 9999.00,
+      installment: "10x R$ 999,90",
       units: null,
       source: "KaBuM!",
       link: "https://www.kabum.com.br/produto/726011/placa-de-video-rtx-5070-ti-16gb-gddr7-256bits-ventus-3x-oc-msi-912-v531-092",
       inStock: true,
       pair: true,
     },
-    // --- Zotac (both tiers, same "Solid OC" sub-line) ---
+    // --- Asus (Prime OC do 5070 em estoque; Prime OC do Ti esgotado) ---
     {
-      id: "gpu-zotac-5070-solid",
-      name: "GeForce RTX 5070 Solid OC",
-      brand: "Zotac",
-      line: "RTX 5070",
-      specs: "12GB GDDR7 · 192-bit · 6144 CUDA · PCIe 5.0",
-      price: 5435.76,
-      cardPrice: 5435.76,
-      cardInstallment: "10x R$ 617,70",
-      units: null,
-      source: "KaBuM!",
-      link: "https://www.kabum.com.br/produto/886743/placa-de-video-zotac-rtx-5070-12gb-gaming-solid-oc-ddr7-zt-b50700j-10p",
-      inStock: true,
-      pair: true,
-    },
-    {
-      id: "gpu-zotac-5070ti-solid",
-      name: "GeForce RTX 5070 Ti Solid OC",
-      brand: "Zotac",
-      line: "RTX 5070 Ti",
-      specs: "16GB GDDR7 · 256-bit · 8960 CUDA · PCIe 5.0",
-      price: 8999.99,
-      cardPrice: 8999.99,
-      cardInstallment: "10x R$ 999,99",
-      units: null,
-      source: "KaBuM!",
-      link: "https://www.kabum.com.br/produto/747493/placa-de-video-zotac-rtx-5070-ti-solid-oc-dlss-4-16gb-gddr7-256-bit-pcie-preto",
-      inStock: true,
-      pair: true,
-    },
-    // --- Asus (TUF on the 5070, Prime OC on the Ti) ---
-    {
-      id: "gpu-asus-5070-tuf",
-      name: "GeForce RTX 5070 TUF Gaming",
+      id: "gpu-asus-5070-prime-oc",
+      name: "GeForce RTX 5070 Prime OC",
       brand: "Asus",
       line: "RTX 5070",
-      specs: "12GB GDDR7 · 192-bit · Axial-tech · PCIe 5.0",
-      price: 6740.00,
-      cardPrice: 6740.00,
-      cardInstallment: "10x R$ 748,88",
+      specs: "12GB GDDR7 · 192-bit · Blackwell · DLSS4 · PCIe 5.0",
+      price: 4499.99,
+      priceOriginal: 7612.22,
+      pixDiscountPct: 10,
+      cardPrice: 4999.99,
+      cardInstallment: "10x R$ 499,99",
+      cardDiscountPct: 10,
       units: null,
       source: "KaBuM!",
-      link: "https://www.kabum.com.br/produto/1006301/placa-de-video-asus-rtx-5070-tuf-gaming-nvidia-geforce-blackwell-12gb-gddr7-dlss4-90yv0lz1-m0na00",
+      link: "https://www.kabum.com.br/produto/706476/placa-de-video-asus-prime-rtx-5070-o12g-nvidia-geforce-12gb-gddr7-blackwell-e-dlss4-ray-tracing-edicao-oc-90yv0m10-m0na00",
       inStock: true,
-      pair: true,
     },
-    {
-      id: "gpu-asus-5070ti-prime",
-      name: "GeForce RTX 5070 Ti Prime OC",
-      brand: "Asus",
-      line: "RTX 5070 Ti",
-      specs: "16GB GDDR7 · 256-bit · Axial-tech · PCIe 5.0",
-      price: 8869.99,
-      cardPrice: 8869.99,
-      units: null,
-      source: "KaBuM!",
-      link: "https://www.kabum.com.br/produto/781985/placa-de-video-asus-prime-rtx-5070-ti-16gb-gddr7-256-bits-3x-dp-1x-hdmi-prime-rtx5070ti-16g",
-      inStock: true,
-      pair: true,
-    },
-    // --- Galax (only the 5070 confirmed in stock right now) ---
+    // --- Galax (só o 5070 em estoque) ---
     {
       id: "gpu-galax-5070",
       name: "GeForce RTX 5070 1-Click OC 2X",
       brand: "Galax",
       line: "RTX 5070",
       specs: "12GB GDDR7 · 192-bit · 6144 CUDA · PCIe 5.0",
-      price: 5119.98,
+      price: 5199.00,
+      priceOriginal: 6598.78,
       pixDiscountPct: 10,
-      cardPrice: 5688.87,
-      cardInstallment: "10x R$ 568,88",
+      cardPrice: 5776.67,
+      cardInstallment: "10x R$ 577,66",
       cardDiscountPct: 10,
       units: null,
       source: "KaBuM!",
@@ -219,14 +202,15 @@ const DB = {
       inStock: true,
       note: "A RTX 5070 Ti da Galax (EX Gamer 1-Click OC) está esgotada no KaBuM agora — sem par da marca disponível nessa linha hoje.",
     },
-    // --- Gigabyte (only the 5070 confirmed in stock right now) ---
+    // --- Gigabyte (só o 5070 em estoque) ---
     {
       id: "gpu-gigabyte-5070",
       name: "GeForce RTX 5070 Gaming OC",
       brand: "Gigabyte",
       line: "RTX 5070",
       specs: "12GB GDDR7 · 192-bit · Windforce · PCIe 5.0",
-      price: 6772.90,
+      price: 6231.07,
+      pixDiscountPct: 8,
       cardPrice: 6772.90,
       cardInstallment: "10x R$ 677,29",
       cardDiscountPct: 8,
@@ -235,6 +219,59 @@ const DB = {
       link: "https://www.kabum.com.br/produto/754152/placa-de-video-gigabyte-geforce-rtx-5070-gaming-oc-12gb-gddr7-192-bits-gv-n5070gaming-oc-12gd",
       inStock: true,
       note: "As RTX 5070 Ti da Gigabyte (Gaming OC, Eagle, Windforce SFF) estão todas esgotadas no KaBuM agora — sem par da marca disponível nessa linha hoje.",
+    },
+    // --- Esgotados no KaBuM em 23/07/2026 (mantidos p/ referência de preço) ---
+    {
+      id: "gpu-zotac-5070-solid",
+      name: "GeForce RTX 5070 Solid OC",
+      brand: "Zotac",
+      line: "RTX 5070",
+      specs: "12GB GDDR7 · 192-bit · 6144 CUDA · PCIe 5.0",
+      price: 5435.76,
+      installment: "10x R$ 617,70",
+      units: 0,
+      source: "KaBuM!",
+      link: "https://www.kabum.com.br/produto/886743/placa-de-video-zotac-rtx-5070-12gb-gaming-solid-oc-ddr7-zt-b50700j-10p",
+      inStock: false,
+    },
+    {
+      id: "gpu-zotac-5070ti-solid",
+      name: "GeForce RTX 5070 Ti Solid OC",
+      brand: "Zotac",
+      line: "RTX 5070 Ti",
+      specs: "16GB GDDR7 · 256-bit · 8960 CUDA · PCIe 5.0",
+      price: 8999.99,
+      installment: "10x R$ 999,99",
+      units: 0,
+      source: "KaBuM!",
+      link: "https://www.kabum.com.br/produto/747493/placa-de-video-zotac-rtx-5070-ti-solid-oc-dlss-4-16gb-gddr7-256-bit-pcie-preto",
+      inStock: false,
+    },
+    {
+      id: "gpu-asus-5070-tuf",
+      name: "GeForce RTX 5070 TUF Gaming",
+      brand: "Asus",
+      line: "RTX 5070",
+      specs: "12GB GDDR7 · 192-bit · Axial-tech · PCIe 5.0",
+      price: 6740.00,
+      installment: "10x R$ 748,88",
+      units: 0,
+      source: "KaBuM!",
+      link: "https://www.kabum.com.br/produto/1006301/placa-de-video-asus-rtx-5070-tuf-gaming-nvidia-geforce-blackwell-12gb-gddr7-dlss4-90yv0lz1-m0na00",
+      inStock: false,
+    },
+    {
+      id: "gpu-asus-5070ti-prime",
+      name: "GeForce RTX 5070 Ti Prime OC",
+      brand: "Asus",
+      line: "RTX 5070 Ti",
+      specs: "16GB GDDR7 · 256-bit · Axial-tech · PCIe 5.0",
+      price: 8869.99,
+      installment: "10x R$ 985,55",
+      units: 0,
+      source: "KaBuM!",
+      link: "https://www.kabum.com.br/produto/781985/placa-de-video-asus-prime-rtx-5070-ti-16gb-gddr7-256-bits-3x-dp-1x-hdmi-prime-rtx5070ti-16g",
+      inStock: false,
     },
   ],
   ram: [
@@ -246,24 +283,16 @@ const DB = {
       sizeGB: 32,
       sticks: 2,
       specs: "DDR5-6000 · CL38 · preta · Intel XMP 3.0",
-      price: 3555.54,
-      installment: "10x R$ 355,55",
+      mtps: 6000,
+      cl: 38, // latência efetiva ≈ 12.67ns
+      price: 3199.99,
+      priceOriginal: 5822.11,
+      pixDiscountPct: 10,
+      cardPrice: 3555.54,
+      cardInstallment: "10x R$ 355,55",
+      cardDiscountPct: 10,
       source: "KaBuM!",
       link: "https://www.kabum.com.br/produto/988585/memoria-ram-corsair-vengeance-32gb-2x16gb-6000mhz-ddr5-cl38-intel-xmp-preto-cmk32gx5m2b6000c38",
-      inStock: true,
-    },
-    {
-      id: "ram-64-2x32",
-      name: "Vengeance 64GB (2x32GB)",
-      brand: "Corsair",
-      size: "64GB",
-      sizeGB: 64,
-      sticks: 2,
-      specs: "DDR5-6000 · CL30 · preta · Intel XMP 3.0",
-      price: 13329.29,
-      installment: "10x R$ 1.332,92",
-      source: "KaBuM!",
-      link: "https://www.kabum.com.br/produto/469049/memoria-ram-corsair-vengeance-64gb-2x32gb-6000mhz-ddr5-cl30-preto-cmk64gx5m2b6000c30",
       inStock: true,
     },
     {
@@ -274,7 +303,10 @@ const DB = {
       sizeGB: 64,
       sticks: 4,
       specs: "DDR5-6000 · CL40 · preta · Intel XMP 3.0",
+      mtps: 6000,
+      cl: 40, // latência efetiva ≈ 13.33ns
       price: 7899.90,
+      priceOriginal: 9082.24,
       pixDiscountPct: 15,
       cardPrice: 9294.00,
       cardInstallment: "10x R$ 929,40",
@@ -284,6 +316,22 @@ const DB = {
       inStock: true,
       note: "4 pentes ocupam todos os slots da placa-mãe — confirme no manual se o kit é validado em 6000MHz com 4 módulos (às vezes o XMP só fecha em clock um pouco menor com todos os slots preenchidos).",
     },
+    {
+      id: "ram-64-2x32",
+      name: "Vengeance 64GB (2x32GB)",
+      brand: "Corsair",
+      size: "64GB",
+      sizeGB: 64,
+      sticks: 2,
+      specs: "DDR5-6000 · CL30 · preta · Intel XMP 3.0",
+      mtps: 6000,
+      cl: 30, // latência efetiva ≈ 10.0ns (melhor kit)
+      price: 13329.29,
+      installment: "10x R$ 1.332,92",
+      source: "KaBuM!",
+      link: "https://www.kabum.com.br/produto/469049/memoria-ram-corsair-vengeance-64gb-2x32gb-6000mhz-ddr5-cl30-preto-cmk64gx5m2b6000c30",
+      inStock: false,
+    },
   ],
   mobo: [
     {
@@ -291,8 +339,12 @@ const DB = {
       name: "B860 DS3H WIFI6E",
       brand: "Gigabyte",
       specs: "Chipset B860 · ATX · Wi-Fi 6E + Bluetooth · LGA1851",
-      price: 1666.66,
-      installment: "10x R$ 166,66",
+      price: 1199.99,
+      priceOriginal: 1666.66,
+      pixDiscountPct: 10,
+      cardPrice: 1333.32,
+      cardInstallment: "10x R$ 133,33",
+      cardDiscountPct: 10,
       source: "KaBuM!",
       link: "https://www.kabum.com.br/produto/723239/placa-mae-gigabyte-b860-ds3h-wifi6e-intel-atx-ddr5-wi-fi-6e-bluetooth-preto-b86d3h6-00",
       inStock: true,
@@ -302,10 +354,29 @@ const DB = {
       name: "B860 Gaming Plus WIFI",
       brand: "MSI",
       specs: "Chipset B860 · ATX · Wi-Fi 7 + Bluetooth · LGA1851",
-      price: 1733.32,
-      installment: "10x R$ 173,33",
+      price: 1899.99,
+      priceOriginal: 2388.78,
+      pixDiscountPct: 10,
+      cardPrice: 2111.10,
+      cardInstallment: "10x R$ 211,11",
+      cardDiscountPct: 10,
       source: "KaBuM!",
       link: "https://www.kabum.com.br/produto/701355/placa-mae-msi-b860-gaming-plus-wifi-intel-atx-ddr5-udimm-wi-fi-7-preto-b860gpluswifi",
+      inStock: true,
+    },
+    {
+      id: "mobo-nzxt-n7-z890",
+      name: "N7 Z890",
+      brand: "NZXT",
+      specs: "Chipset Z890 · ATX · Wi-Fi + Bluetooth · cover metálica · LGA1851",
+      price: 2999.99,
+      priceOriginal: 3666.66,
+      pixDiscountPct: 10,
+      cardPrice: 3333.32,
+      cardInstallment: "10x R$ 333,33",
+      cardDiscountPct: 10,
+      source: "KaBuM!",
+      link: "https://www.kabum.com.br/produto/909150/placa-mae-gaming-nzxt-n7-z890-intel-z890-lga-1851-atx-ddr5-com-wi-fi-e-cover-preta-n7-z89xt-b1",
       inStock: true,
     },
     {
@@ -317,7 +388,7 @@ const DB = {
       installment: "10x R$ 223,32",
       source: "KaBuM!",
       link: "https://www.kabum.com.br/produto/630272/placa-mae-gigabyte-z890-eagle-wifi7-intel-atx-ddr5-rgb-wi-fi-7-bluetooth-preto-z890-eagle-wifi7",
-      inStock: true,
+      inStock: false,
     },
   ],
   psu: [
@@ -326,10 +397,30 @@ const DB = {
       name: "MWE Gold 850 V3",
       brand: "Cooler Master",
       specs: "850W · 80 Plus Gold · ATX 3.1 · conector 12V-2x6 nativo",
-      price: 389.99,
-      installment: "10x R$ 43,33",
+      price: 339.99,
+      priceOriginal: 444.43,
+      pixDiscountPct: 10,
+      cardPrice: 377.77,
+      cardInstallment: "10x R$ 37,77",
+      cardDiscountPct: 10,
       source: "KaBuM!",
       link: "https://www.kabum.com.br/produto/895040/fonte-cooler-master-mwe-gold-850-v3-850w-80-plus-ouro-atx-3-1-pfc-ativo-preto-mpe-8506-acag-bbr",
+      inStock: true,
+      note: "850W cobre com folga tanto a RTX 5070 (mín. 650W) quanto a 5070 Ti (mín. 750W).",
+    },
+    {
+      id: "psu-gigabyte-ud850gm",
+      name: "UD850GM",
+      brand: "Gigabyte",
+      specs: "850W · 80 Plus Gold · modular · PFC ativo",
+      price: 569.99,
+      priceOriginal: 777.77,
+      pixDiscountPct: 10,
+      cardPrice: 633.32,
+      cardInstallment: "10x R$ 63,33",
+      cardDiscountPct: 10,
+      source: "KaBuM!",
+      link: "https://www.kabum.com.br/produto/907601/fonte-gigabyte-ud850gm-850w-80-plus-gold-modular-pfc-ativo-preto-28200-ud850g-1arr",
       inStock: true,
       note: "850W cobre com folga tanto a RTX 5070 (mín. 650W) quanto a 5070 Ti (mín. 750W).",
     },
@@ -341,10 +432,28 @@ const DB = {
       brand: "Adata / XPG",
       size: "1TB",
       specs: "NVMe PCIe Gen4x4 · 7400/5500 MB/s · M.2 2280",
-      price: 1299.99,
-      installment: "10x R$ 152,94",
+      price: 1773.20,
+      pixDiscountPct: 12,
+      cardPrice: 2015.00,
+      cardInstallment: "10x R$ 201,50",
+      cardDiscountPct: 10,
       source: "KaBuM!",
       link: "https://www.kabum.com.br/produto/386844/ssd-xpg-s70-blade-1tb-pcie-gen4-m-2-nvme-leitura-7400mb-s-e-gravacao-5500mb-s-para-pc-e-ps5-agammixs70b-1t-cs",
+      inStock: true,
+    },
+    {
+      id: "ssd-sandisk-sn7100-2tb",
+      name: "SanDisk SN7100 2TB",
+      brand: "Sandisk",
+      size: "2TB",
+      specs: "NVMe PCIe Gen4 · 7250/6900 MB/s · M.2 2280",
+      price: 3179.90,
+      pixDiscountPct: 15,
+      cardPrice: 3741.06,
+      cardInstallment: "10x R$ 374,10",
+      cardDiscountPct: 10,
+      source: "KaBuM!",
+      link: "https://www.kabum.com.br/produto/729817/ssd-sandisk-sn7100-nvme-2tb-m-2-pcle-gen4-leitura-7-250mb-s-e-gravacao-6-900mb-s-wds200t4x0e",
       inStock: true,
     },
     {
@@ -357,31 +466,41 @@ const DB = {
       installment: "10x R$ 288,23",
       source: "KaBuM!",
       link: "https://www.kabum.com.br/produto/169968/ssd-xpg-s70-blade-2tb-pcie-gen4x4-m-2-nvme-leitura-7400mb-s-e-gravacao-6400mb-s-3d-nand-preto-agammixs70b-2t-cs",
-      inStock: true,
+      inStock: false,
     },
   ],
 };
 
 // ----------------------------------------------------------------------------
-// Performance model: each game stores a real/benchmark-derived FPS baseline
-// measured on an RTX 5070 Ti at 1440p (max preset, RT/PT as noted, DLSS4
-// Quality, no frame generation). Selecting a different GPU/CPU in a config
-// recalculates the estimate live via estimateFps() below — nothing here is
-// hardcoded per "Config A/B", it reacts to whatever part is actually picked.
+// Performance model (grounded in published benchmarks — see estimateFps below)
+// ----------------------------------------------------------------------------
+// Each game stores a real/benchmark-derived FPS baseline measured on an RTX
+// 5070 Ti at 1440p (max preset, RT/PT as noted, DLSS4 Quality, no frame gen).
+// estimateFps() then reacts LIVE to the GPU, CPU and RAM actually picked —
+// nothing is hardcoded per "Config A/B". The model is intentionally
+// GPU-dominant: at 1440p/4K these games are GPU-bound, so CPU/RAM move the
+// number only a little (that's the real physics, not a limitation).
 //
 // Game list = the 10 most visually acclaimed titles from 2025 up to today,
-// mixing the Steam community's own Steam Awards 2025 vote (category:
-// "Estilo Visual Excepcional" / Excellence in Visual Style) with Digital
-// Foundry's "Best Graphics of 2025" ranking and general critical/community
-// reception for 2026 releases not yet eligible for a Steam Award.
+// mixing the Steam Awards 2025 community vote ("Estilo Visual Excepcional")
+// with Digital Foundry's "Best Graphics of 2025" ranking and critical/
+// community reception for 2026 releases not yet eligible for a Steam Award.
 //
-// Scaling-ratio sources (RTX 5070 vs RTX 5070 Ti):
-// - Sportskeeda GPU benchmark of Resident Evil Requiem on RTX 5070 Ti,
-//   1440p Max preset (raster ~121fps, RT ~20% hit, path tracing ~20% further)
-// - Notebookcheck RTX 5070 Ti vs RTX 5070 head-to-head (Ti ~19% faster)
-// - Windows Central 16-game 1440p Ultra suite (RTX 5070 avg 80.4 fps)
-// - BestGPUsForGaming 1440p Ultra comparison (Ti leads 10-20%, more on
-//   heavier RT/PT titles, less on lighter/well-optimized ones)
+// GPU scaling (RTX 5070 vs RTX 5070 Ti) — sources:
+// - Sportskeeda benchmark of Resident Evil Requiem on RTX 5070 Ti 1440p Max
+// - Notebookcheck 5070 Ti vs 5070 head-to-head (Ti ~19% faster @1440p)
+// - Windows Central 16-game suite (5070 Ti 100.3 vs 5070 80.4 @1440p;
+//   61.2 vs 46.7 @4K — gap widens at 4K, modeled via gap5070Adjust)
+// - BestGPUsForGaming 1440p Ultra (Ti leads more on heavy RT/PT titles)
+// gap5070 per game = the 1440p 5070/5070Ti ratio, wider on RT/PT-heavy games.
+//
+// CPU gaming index (cpuGameIndex in the CPU DB) — sources:
+// - Tom's Hardware / Tech4Gamers: Ultra 9 285K 144.9 fps vs Ultra 7 265K
+//   138.8 fps (geomean, 16 games, 1080p) => 265K = 0.958 of 285K. That ~4%
+//   is the MAX (fully CPU-bound @1080p); it shrinks toward 0 at 1440p/4K.
+// RAM index (cl + mtps in the RAM DB): effective latency (CL/MT/s) drives a
+//   sub-1% effect at these resolutions. Capacity (32 vs 64GB) has ~0 effect on
+//   average FPS above the game's working set, so it is deliberately NOT modeled.
 // ----------------------------------------------------------------------------
 const GAMES = [
   {
@@ -508,25 +627,49 @@ const GAMES = [
 // These are approximations (general GPU-scaling behavior + DLSS4 internal
 // resolution behavior), not per-title 4K benchmarks — flagged as such in UI.
 // ----------------------------------------------------------------------------
+// Each resolution carries three factors, all grounded in observed behavior:
+//  - factor: GPU FPS scaling vs the 1440p baseline (DLSS4 Quality softens 4K).
+//  - cpuSensitivity: how much of the (1080p) CPU/RAM gap survives at this res.
+//    More pixels => more GPU-bound => CPU/RAM matter less (→ smaller number).
+//  - gap5070Adjust: the 5070-vs-5070Ti gap widens slightly at 4K (Windows
+//    Central: ~24% @1440p → ~31% @4K), so the 5070's ratio is nudged down.
 const RESOLUTIONS = [
-  { id: "uw144", label: '34" 144Hz (UWQHD)', refreshCap: 144, factor: 0.85 },
-  { id: "tv4k", label: "TV 4K (UHD)", refreshCap: null, factor: 0.60 },
+  { id: "uw144", label: '34" 144Hz (UWQHD)', refreshCap: 144, factor: 0.85, cpuSensitivity: 0.30, gap5070Adjust: 1.0 },
+  { id: "tv4k", label: "TV 4K (UHD)", refreshCap: null, factor: 0.60, cpuSensitivity: 0.12, gap5070Adjust: 0.95 },
 ];
+// Reference (internal 1440p, resolutionId = null) used by the value-badge math.
+const REF_CPU_SENSITIVITY = 0.35;
 
-// K/OC parts sit a hair ahead of their non-K siblings even at 1440p
-// (GPU-bound scenes hide most of it, but NPC-dense/CPU-heavy moments show it).
-function cpuFactor(cpu) {
-  return cpu?.tag === "Overclock" ? 1.0 : 0.97;
+// RAM index: effective latency in ns = (CL / MT/s) × 2000. Best available kit
+// (DDR5-6000 CL30 ≈ 10ns) is neutral; each extra ns costs ~0.4% at the fully
+// CPU-bound limit — which then gets scaled way down by cpuSensitivity below.
+// Capacity is intentionally ignored: it doesn't move average FPS in games.
+function ramIndex(ram) {
+  if (!ram?.cl || !ram?.mtps) return 1;
+  const latNs = (ram.cl / ram.mtps) * 2000;
+  return 1 - Math.max(0, latNs - 10) * 0.004;
 }
 
-// Core estimator: baseline (measured on 5070 Ti @1440p) x GPU tier ratio x
-// CPU factor x resolution factor. Pass resolutionId = null/"1440p" for the
-// underlying 1440p reference number (used internally for the value-badge math).
-function estimateFps(game, gpu, cpu, resolutionId) {
-  const gpuRatio = gpu?.line === "RTX 5070 Ti" ? 1 : game.gap5070;
+// Platform (CPU + RAM) factor. The raw CPU/RAM gap is the fully-CPU-bound
+// (1080p) delta; cpuSensitivity attenuates it for the actual resolution, so at
+// 4K the whole platform barely moves the number — matching real benchmarks.
+function platformFactor(cpu, ram, cpuSensitivity) {
+  const idx = (cpu?.cpuGameIndex ?? 1) * ramIndex(ram);
+  return 1 - (1 - idx) * cpuSensitivity;
+}
+
+// Core estimator: baseline (measured on 5070 Ti @1440p) × GPU tier ratio ×
+// platform (CPU+RAM) factor × resolution factor. Pass resolutionId = null for
+// the underlying 1440p reference number (used internally for value-badge math).
+function estimateFps(game, gpu, cpu, ram, resolutionId) {
   const res = RESOLUTIONS.find((r) => r.id === resolutionId);
   const resFactor = res ? res.factor : 1;
-  return Math.round(game.fps5070Ti * gpuRatio * cpuFactor(cpu) * resFactor);
+  const cpuSensitivity = res ? res.cpuSensitivity : REF_CPU_SENSITIVITY;
+  const gapAdjust = res ? res.gap5070Adjust : 1;
+  const gpuRatio = gpu?.line === "RTX 5070 Ti" ? 1 : game.gap5070 * gapAdjust;
+  return Math.round(
+    game.fps5070Ti * gpuRatio * platformFactor(cpu, ram, cpuSensitivity) * resFactor
+  );
 }
 
 // ----------------------------------------------------------------------------
@@ -540,7 +683,7 @@ function annotateValueBadges(db) {
   // GPU: R$ per average fps, computed per line (tier)
   const avgFpsByGpuId = {};
   db.gpu.forEach((g) => {
-    const fpsList = GAMES.map((game) => estimateFps(game, g, null));
+    const fpsList = GAMES.map((game) => estimateFps(game, g, null, null, null));
     avgFpsByGpuId[g.id] = fpsList.reduce((a, b) => a + b, 0) / fpsList.length;
   });
   ["RTX 5070", "RTX 5070 Ti"].forEach((line) => {
@@ -601,6 +744,186 @@ function saveToStorage(data, lastUpdated) {
   } catch {
     return false; // quota exceeded / storage disabled — app still works, just won't persist
   }
+}
+
+// ----------------------------------------------------------------------------
+// Link import — the app is static (GitHub Pages, no backend), so a real
+// browser fetch to kabum.com.br is blocked by CORS. Reading a pasted link
+// goes through r.jina.ai's read-only proxy (fetches the page server-side and
+// returns clean text/markdown with permissive CORS headers) — verified
+// working against KaBuM product pages, unlike the generic CORS proxies
+// (allorigins/corsproxy.io), which either timed out or blocked non-browser
+// origins outright when tested against this exact site. A raw-HTML +
+// schema.org JSON-LD proxy is kept as a second attempt in case jina is ever
+// down, since KaBuM pages do carry a Product JSON-LD block.
+// ----------------------------------------------------------------------------
+const JINA_READER_PREFIX = "https://r.jina.ai/";
+const FALLBACK_HTML_PROXY = (url) => `https://api.allorigins.win/raw?url=${encodeURIComponent(url)}`;
+
+// Common component brands, checked against the title so a real brand ("Asus",
+// "Corsair"...) wins over the generic Portuguese category noun that normally
+// leads a KaBuM title ("Placa de Vídeo...", "Processador...", "Fonte...").
+const KNOWN_BRANDS = [
+  "Intel", "AMD", "Asus", "MSI", "Gigabyte", "Zotac", "Galax", "Palit",
+  "PNY", "EVGA", "Sapphire", "PowerColor", "XFX", "Corsair", "Kingston",
+  "Adata", "XPG", "Sandisk", "WD", "WD_Black", "Samsung", "Crucial",
+  "Cooler Master", "NZXT", "be quiet!", "Thermaltake", "DeepCool",
+  "Lian Li", "Biostar", "ASRock", "Pichau", "Rise Mode", "T-Force",
+  "G.Skill", "Seagate", "Hikvision", "Redragon", "Logitech", "HyperX",
+];
+
+function guessBrandFromName(name) {
+  // Pick whichever known brand appears earliest in the title, not the first
+  // match in KNOWN_BRANDS — titles often carry a second/compatibility brand
+  // later on (e.g. "...DDR5... Intel XMP..." on a Corsair RAM kit).
+  let best = null;
+  let bestIndex = Infinity;
+  for (const b of KNOWN_BRANDS) {
+    const re = new RegExp(`\\b${b.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\b`, "i");
+    const m = re.exec(name);
+    if (m && m.index < bestIndex) {
+      best = b;
+      bestIndex = m.index;
+    }
+  }
+  if (best) return best;
+  const words = name.trim().split(/\s+/);
+  return words[1] || words[0] || "KaBuM!";
+}
+
+function parsePriceValue(raw) {
+  if (raw == null) return null;
+  if (typeof raw === "number") return raw;
+  let s = String(raw).replace(/[^\d.,]/g, "");
+  if (!s) return null;
+  if (s.includes(",") && s.includes(".")) {
+    s = s.replace(/\./g, "").replace(",", "."); // "3.569,99" -> "3569.99"
+  } else if (s.includes(",")) {
+    s = s.replace(",", ".");
+  }
+  const n = parseFloat(s);
+  return Number.isNaN(n) ? null : n;
+}
+
+function stripMarkdown(s) {
+  return s
+    .replace(/\*\*/g, "")
+    .replace(/^\s*[*-]\s+/gm, "")
+    .replace(/[#`]/g, "")
+    .replace(/\s*\n+\s*/g, " ")
+    .replace(/\s{2,}/g, " ")
+    .trim();
+}
+
+// Primary path: r.jina.ai returns the page as readable markdown. KaBuM's
+// product price renders as a "#### R$X.XXX,XX" heading, and the spec list
+// sits under an "Especificações Técnicas" section — both held steady across
+// every category tested (CPU/GPU/RAM/mobo/PSU/SSD).
+async function importViaJinaReader(url) {
+  const res = await fetch(JINA_READER_PREFIX + url);
+  if (!res.ok) throw new Error(`jina respondeu ${res.status}`);
+  const text = await res.text();
+
+  const titleMatch = text.match(/^Title:\s*(.+)$/m);
+  const name = titleMatch?.[1]?.trim();
+  if (!name) throw new Error("sem título");
+
+  const priceMatch = text.match(/####\s*R\$\s?([\d.,]+)/);
+  const price = parsePriceValue(priceMatch?.[1]);
+
+  const specMatch = text.match(/Especifica[cç][õo]es? T[ée]cnicas?\**:?\s*([\s\S]{0,600}?)(?:\n\*\*|\n#{2,3}\s|$)/);
+  const specs = specMatch ? stripMarkdown(specMatch[1]).slice(0, 160) : "";
+
+  const outOfStock = /Produto indispon[íi]vel|Esgotado/i.test(text.slice(0, text.indexOf("Sobre o produto") + 1 || 4000));
+
+  return {
+    name,
+    price,
+    specs: specs || "Importado do link — sem specs detalhadas.",
+    inStock: !outOfStock,
+  };
+}
+
+// Fallback path: raw HTML through a generic CORS proxy, reading the page's
+// own schema.org Product JSON-LD block.
+async function importViaHtmlProxy(url) {
+  const res = await fetch(FALLBACK_HTML_PROXY(url));
+  if (!res.ok) throw new Error(`proxy respondeu ${res.status}`);
+  const html = await res.text();
+  if (!html || html.length < 200) throw new Error("resposta vazia");
+
+  const doc = new DOMParser().parseFromString(html, "text/html");
+  const scripts = doc.querySelectorAll('script[type="application/ld+json"]');
+  let product = null;
+  for (const script of scripts) {
+    let parsed;
+    try {
+      parsed = JSON.parse(script.textContent);
+    } catch {
+      continue; // malformed JSON-LD block on the page — skip it
+    }
+    const candidates = Array.isArray(parsed) ? parsed : [parsed];
+    for (const c of candidates) {
+      const graphNodes = Array.isArray(c?.["@graph"]) ? c["@graph"] : [c];
+      const found = graphNodes.find((n) => {
+        const type = n?.["@type"];
+        return type === "Product" || (Array.isArray(type) && type.includes("Product"));
+      });
+      if (found) product = found;
+    }
+  }
+
+  const ogTitle = doc.querySelector('meta[property="og:title"]')?.content;
+  const name = product?.name || ogTitle?.replace(/\s*\|\s*KaBuM.*/i, "").trim();
+  if (!name) throw new Error("sem título");
+
+  const offer = Array.isArray(product?.offers) ? product.offers[0] : product?.offers;
+  const metaPrice = doc.querySelector('meta[property="product:price:amount"]')?.content;
+  const price = parsePriceValue(offer?.price ?? metaPrice);
+
+  const description = product?.description || doc.querySelector('meta[name="description"]')?.content || "";
+
+  return {
+    name,
+    price,
+    specs: description.trim().slice(0, 160) || "Importado do link — sem specs detalhadas.",
+    inStock: true,
+  };
+}
+
+async function importFromKabumLink(rawUrl) {
+  const url = rawUrl.trim();
+  if (!/kabum\.com\.br\/produto\//i.test(url)) {
+    throw new Error("Isso não parece um link de produto do KaBuM! (precisa ter kabum.com.br/produto/...).");
+  }
+
+  let extracted;
+  try {
+    extracted = await importViaJinaReader(url);
+  } catch {
+    try {
+      extracted = await importViaHtmlProxy(url);
+    } catch {
+      throw new Error("Não consegui ler essa página agora (proxies indisponíveis). Tente de novo em instantes.");
+    }
+  }
+
+  const idMatch = url.match(/produto\/(\d+)/);
+  const id = `custom-${idMatch ? idMatch[1] : Date.now()}`;
+  const price = extracted.price ?? 0;
+
+  return {
+    id,
+    name: extracted.name,
+    brand: guessBrandFromName(extracted.name),
+    specs: extracted.specs,
+    price,
+    installment: price ? `10x ${formatBRL(price / 10)}` : "—",
+    source: "KaBuM!",
+    link: url,
+    inStock: extracted.inStock,
+    imported: true,
+  };
 }
 
 // ----------------------------------------------------------------------------
@@ -726,22 +1049,27 @@ function formatDate(iso) {
   return `${d}/${m}/${y}`;
 }
 
+// Config A = build "topo" (Ultra 9 285K + RTX 5070 Ti). Os defaults originais
+// (Asus 5070 Ti Prime, Z890 Eagle, XPG S70 2TB) ficaram esgotados no KaBuM em
+// 23/07/2026, então foram repontados para os equivalentes em estoque mais
+// próximos (5070 Ti da MSI, único Z890 em estoque = NZXT N7, SSD 2TB SanDisk).
 const DEFAULT_A = {
   cpu: "u9-285k",
-  gpu: "gpu-asus-5070ti-prime",
+  gpu: "gpu-msi-5070ti-ventus3x",
   ram: "ram-64-4x16",
-  mobo: "mobo-z890-gigabyte",
+  mobo: "mobo-nzxt-n7-z890",
   psu: "psu-cm-850",
-  ssd: "ssd-2tb",
+  ssd: "ssd-sandisk-sn7100-2tb",
 };
 
+// Config B = exatamente os 6 produtos dos links enviados pelo David.
 const DEFAULT_B = {
   cpu: "u7-265k",
-  gpu: "gpu-msi-5070-ventus2x",
+  gpu: "gpu-asus-5070-prime-oc",
   ram: "ram-32",
-  mobo: "mobo-b860-msi",
-  psu: "psu-cm-850",
-  ssd: "ssd-1tb",
+  mobo: "mobo-nzxt-n7-z890",
+  psu: "psu-gigabyte-ud850gm",
+  ssd: "ssd-sandisk-sn7100-2tb",
 };
 
 /* ============================================================================
@@ -803,6 +1131,7 @@ function OptionCard({ item, selected, onSelect, accent }) {
                 {item.valueBadge}
               </Badge>
             )}
+            {item.imported && <Badge tone="ok">Importado do link</Badge>}
           </div>
           <div className="mt-0.5 text-sm font-semibold text-slate-100 truncate">
             {item.name}
@@ -901,7 +1230,130 @@ function OptionCard({ item, selected, onSelect, accent }) {
   );
 }
 
-function CategoryAccordion({ catKey, label, Icon, items, selectedId, onSelect, accent, openKey, setOpenKey }) {
+function LinkImportInput({ onAdd, accent }) {
+  const [url, setUrl] = useState("");
+  const [status, setStatus] = useState("idle"); // idle | loading | error
+  const [errorMsg, setErrorMsg] = useState("");
+  const [manual, setManual] = useState({ name: "", price: "" });
+
+  const runImport = useCallback(
+    async (rawUrl) => {
+      const trimmed = rawUrl.trim();
+      if (!trimmed || status === "loading") return;
+      setStatus("loading");
+      setErrorMsg("");
+      try {
+        const item = await importFromKabumLink(trimmed);
+        onAdd(item);
+        setUrl("");
+        setManual({ name: "", price: "" });
+        setStatus("idle");
+      } catch (err) {
+        setErrorMsg(err.message || "Não consegui ler esse link.");
+        setStatus("error");
+      }
+    },
+    [onAdd, status]
+  );
+
+  const handleManualAdd = () => {
+    const name = manual.name.trim();
+    if (!name) return;
+    const price = parsePriceValue(manual.price) ?? 0;
+    onAdd({
+      id: `custom-${Date.now()}`,
+      name,
+      brand: guessBrandFromName(name),
+      specs: "Adicionado manualmente a partir do link colado.",
+      price,
+      installment: price ? `10x ${formatBRL(price / 10)}` : "—",
+      source: "KaBuM!",
+      link: url.trim(),
+      inStock: true,
+      imported: true,
+    });
+    setUrl("");
+    setManual({ name: "", price: "" });
+    setStatus("idle");
+  };
+
+  return (
+    <div className="rounded-xl border border-white/10 bg-white/5 p-2.5 space-y-2">
+      <div className="flex items-center gap-1.5 text-xs text-slate-400">
+        <LinkIcon size={12} />
+        <span>Colar link do produto (KaBuM!) para reconhecer automaticamente</span>
+      </div>
+      <div className="flex gap-1.5">
+        <input
+          type="url"
+          inputMode="url"
+          placeholder="https://www.kabum.com.br/produto/..."
+          value={url}
+          onChange={(e) => setUrl(e.target.value)}
+          onPaste={(e) => {
+            const pasted = e.clipboardData.getData("text");
+            if (pasted) {
+              setUrl(pasted);
+              runImport(pasted);
+            }
+          }}
+          onKeyDown={(e) => {
+            if (e.key === "Enter") runImport(url);
+          }}
+          className="flex-1 min-w-0 rounded-lg border border-white/10 bg-black/20 px-2.5 py-1.5 text-xs text-slate-100 placeholder:text-slate-500 focus:outline-none focus:border-white/30"
+        />
+        <button
+          onClick={() => runImport(url)}
+          disabled={status === "loading" || !url.trim()}
+          className="shrink-0 rounded-lg px-3 py-1.5 text-xs font-bold disabled:opacity-50"
+          style={{ background: `${accent}20`, color: accent, border: `1px solid ${accent}50` }}
+        >
+          {status === "loading" ? (
+            <RefreshCw size={12} className="animate-spin" />
+          ) : (
+            "Buscar"
+          )}
+        </button>
+      </div>
+
+      {status === "loading" && (
+        <div className="text-xs text-slate-400">buscando dados do produto…</div>
+      )}
+
+      {status === "error" && (
+        <div className="space-y-2">
+          <div className="flex items-start gap-1 text-xs text-amber-300/90">
+            <AlertTriangle size={12} className="mt-0.5 shrink-0" />
+            <span>{errorMsg}</span>
+          </div>
+          <div className="text-xs text-slate-400">Ou preencha na mão a partir desse link:</div>
+          <input
+            placeholder="Nome do produto"
+            value={manual.name}
+            onChange={(e) => setManual((m) => ({ ...m, name: e.target.value }))}
+            className="w-full rounded-lg border border-white/10 bg-black/20 px-2.5 py-1.5 text-xs text-slate-100 placeholder:text-slate-500 focus:outline-none"
+          />
+          <input
+            placeholder="Preço (ex: 1299,99)"
+            value={manual.price}
+            onChange={(e) => setManual((m) => ({ ...m, price: e.target.value }))}
+            className="w-full rounded-lg border border-white/10 bg-black/20 px-2.5 py-1.5 text-xs text-slate-100 placeholder:text-slate-500 focus:outline-none"
+          />
+          <button
+            onClick={handleManualAdd}
+            disabled={!manual.name.trim()}
+            className="w-full rounded-lg py-1.5 text-xs font-bold disabled:opacity-50"
+            style={{ background: `${accent}20`, color: accent, border: `1px solid ${accent}50` }}
+          >
+            Adicionar mesmo assim
+          </button>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function CategoryAccordion({ catKey, label, Icon, items, selectedId, onSelect, onAddCustomItem, accent, openKey, setOpenKey }) {
   const isOpen = openKey === catKey;
   const selectedItem = items.find((i) => i.id === selectedId);
   // Cheapest first, always — out-of-stock items sink to the bottom regardless
@@ -944,6 +1396,10 @@ function CategoryAccordion({ catKey, label, Icon, items, selectedId, onSelect, a
 
       {isOpen && (
         <div className="border-t border-white/10 p-3 space-y-2 bg-black/20">
+          <LinkImportInput
+            accent={accent}
+            onAdd={(item) => onAddCustomItem(catKey, item)}
+          />
           {catKey === "gpu" && (
             <div className="flex items-start gap-1.5 text-xs text-slate-400 leading-relaxed px-1 pb-1">
               <Info size={11} className="mt-0.5 shrink-0" />
@@ -981,7 +1437,7 @@ function CategoryAccordion({ catKey, label, Icon, items, selectedId, onSelect, a
   );
 }
 
-function ConfigBuilder({ label, accent, config, setConfig, db }) {
+function ConfigBuilder({ label, accent, config, setConfig, db, onAddCustomItem }) {
   const [openKey, setOpenKey] = useState(null);
 
   const handleSelect = useCallback(
@@ -989,6 +1445,14 @@ function ConfigBuilder({ label, accent, config, setConfig, db }) {
       setConfig((prev) => ({ ...prev, [catKey]: id }));
     },
     [setConfig]
+  );
+
+  const handleAddCustomItem = useCallback(
+    (catKey, item) => {
+      onAddCustomItem(catKey, item);
+      setConfig((prev) => ({ ...prev, [catKey]: item.id }));
+    },
+    [onAddCustomItem, setConfig]
   );
 
   const total = useMemo(() => {
@@ -1028,6 +1492,7 @@ function ConfigBuilder({ label, accent, config, setConfig, db }) {
             items={db[c.key] || []}
             selectedId={config[c.key]}
             onSelect={handleSelect}
+            onAddCustomItem={handleAddCustomItem}
             accent={accent}
             openKey={openKey}
             setOpenKey={setOpenKey}
@@ -1165,12 +1630,14 @@ function GamesView({ configA, configB, db }) {
   const gpuB = db.gpu.find((g) => g.id === configB.gpu);
   const cpuA = db.cpu.find((c) => c.id === configA.cpu);
   const cpuB = db.cpu.find((c) => c.id === configB.cpu);
+  const ramA = db.ram.find((r) => r.id === configA.ram);
+  const ramB = db.ram.find((r) => r.id === configB.ram);
   const resMeta = RESOLUTIONS.find((r) => r.id === resolution);
 
   const rows = GAMES.map((game) => ({
     ...game,
-    fpsA: estimateFps(game, gpuA, cpuA, resolution),
-    fpsB: estimateFps(game, gpuB, cpuB, resolution),
+    fpsA: estimateFps(game, gpuA, cpuA, ramA, resolution),
+    fpsB: estimateFps(game, gpuB, cpuB, ramB, resolution),
   }));
   const maxFps = Math.max(...rows.map((g) => Math.max(g.fpsA, g.fpsB)), 1);
 
@@ -1184,9 +1651,19 @@ function GamesView({ configA, configB, db }) {
           </span>
         </div>
         <p className="text-xs text-slate-400 leading-relaxed">
-          FPS recalculado ao vivo a partir da <strong className="text-slate-300">GPU e CPU que você escolheu</strong>{" "}
+          FPS recalculado ao vivo a partir da <strong className="text-slate-300">GPU, CPU e RAM que você escolheu</strong>{" "}
           em cada config — preset máximo, Ray/Path Tracing, DLSS 4 Qualidade, sem frame generation.
+          Base medida em RTX 5070 Ti @1440p; a escala 5070↔5070 Ti vem de benchmarks (TechPowerUp/Notebookcheck/Windows Central).
         </p>
+        <div className="mt-2 flex items-start gap-1 text-xs leading-relaxed" style={{ color: BRAND_CYAN }}>
+          <Info size={12} className="mt-0.5 shrink-0" />
+          <span>
+            Nestas resoluções o FPS é <strong>dominado pela GPU</strong>. Entre estas CPUs (Ultra 7/9) a
+            diferença em jogos é de ~1–4% e some quase toda em 4K — e a RAM mexe menos de 1% no FPS médio
+            (capacidade não muda o médio, só evita travadas). Por isso trocar CPU/RAM aqui move pouco: é o
+            comportamento real, não um bug.
+          </span>
+        </div>
 
         <div className="mt-3 grid grid-cols-2 gap-1.5">
           {RESOLUTIONS.map((r) => (
@@ -1213,10 +1690,10 @@ function GamesView({ configA, configB, db }) {
 
         <div className="mt-2 flex flex-col gap-0.5 text-xs font-mono">
           <span style={{ color: CONFIG_THEME.A.accent }}>
-            A · {cpuA?.name} + {gpuA?.brand} {gpuA?.name}
+            A · {cpuA?.name} + {gpuA?.brand} {gpuA?.name} + {ramA?.size}
           </span>
           <span style={{ color: CONFIG_THEME.B.accent }}>
-            B · {cpuB?.name} + {gpuB?.brand} {gpuB?.name}
+            B · {cpuB?.name} + {gpuB?.brand} {gpuB?.name} + {ramB?.size}
           </span>
         </div>
       </div>
@@ -1349,6 +1826,17 @@ export default function PCConfigComparator() {
     });
   }, []);
 
+  const handleAddCustomItem = useCallback((catKey, item) => {
+    setDb((prev) => {
+      const cloned = JSON.parse(JSON.stringify(prev)); // don't mutate cached state in place
+      const withoutDup = (cloned[catKey] || []).filter((i) => i.id !== item.id);
+      cloned[catKey] = [...withoutDup, item];
+      const next = annotateValueBadges(cloned);
+      saveToStorage(next, lastUpdated);
+      return next;
+    });
+  }, [lastUpdated]);
+
   const handleRefresh = () => {
     setRefreshing(true);
     setRefreshMsg("");
@@ -1385,7 +1873,7 @@ export default function PCConfigComparator() {
       >
         <div className="flex items-center justify-between">
           <div>
-            <h1 className="text-lg font-black tracking-tight">Monta&nbsp;PC</h1>
+            <h1 className="text-lg font-black tracking-tight">PC&nbsp;Builder</h1>
             <p className="text-xs text-slate-400 -mt-0.5">
               comparador de configurações · Ultra 9/7 + RTX 5070/Ti
             </p>
@@ -1444,6 +1932,7 @@ export default function PCConfigComparator() {
             config={configA}
             setConfig={setConfigA}
             db={db}
+            onAddCustomItem={handleAddCustomItem}
           />
         )}
         {tab === "B" && (
@@ -1453,6 +1942,7 @@ export default function PCConfigComparator() {
             config={configB}
             setConfig={setConfigB}
             db={db}
+            onAddCustomItem={handleAddCustomItem}
           />
         )}
         {tab === "compare" && (
