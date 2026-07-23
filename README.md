@@ -37,3 +37,5 @@ Abre em `http://localhost:5173`.
 
 Em `src/App.jsx`, procure por `GITHUB_URL` perto do topo do arquivo — já está apontando
 para `https://github.com/Davidfdesousa`.
+
+
