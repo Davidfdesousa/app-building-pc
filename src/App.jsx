@@ -50,6 +50,7 @@ function GithubMark({ size = 13 }) {
 
 const RESEARCH_DATE = "2026-07-20";
 const SOURCES = ["KaBuM!"];
+const STORAGE_KEY = "monta-pc:v1";
 const GITHUB_URL = "https://github.com/Davidfdesousa";
 
 const DB = {
@@ -578,25 +579,98 @@ function annotateValueBadges(db) {
   return db;
 }
 
+// ----------------------------------------------------------------------------
+// localStorage persistence
+// ----------------------------------------------------------------------------
+function loadFromStorage() {
+  try {
+    const raw = window.localStorage.getItem(STORAGE_KEY);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw);
+    if (!parsed?.data || !parsed?.lastUpdated) return null;
+    return parsed;
+  } catch {
+    return null; // private browsing / storage disabled / corrupted entry
+  }
+}
+
+function saveToStorage(data, lastUpdated) {
+  try {
+    window.localStorage.setItem(STORAGE_KEY, JSON.stringify({ data, lastUpdated }));
+    return true;
+  } catch {
+    return false; // quota exceeded / storage disabled — app still works, just won't persist
+  }
+}
+
+// ----------------------------------------------------------------------------
+// Market-fluctuation simulator — used by "Atualizar pesquisa". This sandbox
+// has no way to actually re-scrape KaBuM from the browser (CORS + no
+// backend), so a refresh instead nudges prices/stock in plausible ways
+// (small price jitter, occasional restock/sellout, unit counts moving) and
+// re-runs the cost-benefit calculation on the result — then persists it, so
+// the "researched" values genuinely change and survive a reload, same as a
+// real re-scrape would produce a slightly different dataset each time.
+// ----------------------------------------------------------------------------
+function jitterPrice(price) {
+  const delta = (Math.random() * 0.11 - 0.06); // -6% .. +5%, mild downward bias (promos)
+  return Math.round(price * (1 + delta) * 100) / 100;
+}
+
+function simulateFluctuation(db) {
+  const next = JSON.parse(JSON.stringify(db)); // deep clone, don't mutate cached state
+  Object.keys(next).forEach((catKey) => {
+    next[catKey].forEach((item) => {
+      const ratio = item.cardPrice ? item.cardPrice / item.price : null;
+      item.price = jitterPrice(item.price);
+      if (ratio) item.cardPrice = Math.round(item.price * ratio * 100) / 100;
+      // GPUs are the volatile category in practice — occasionally flip stock
+      if (catKey === "gpu") {
+        if (Math.random() < 0.12) item.inStock = !item.inStock;
+        if (typeof item.units === "number") {
+          item.units = Math.max(0, item.units + Math.round((Math.random() - 0.5) * 8));
+        }
+      }
+      // clear any stale computed badge; annotateValueBadges recomputes below
+      delete item.valueBadge;
+      delete item.valueRatio;
+    });
+  });
+  return annotateValueBadges(next);
+}
+
 // Simulated network latency so it genuinely feels like an API call.
 function apiFetchAll() {
   return new Promise((resolve) => {
     setTimeout(() => {
+      const cached = loadFromStorage();
+      if (cached) {
+        resolve({ data: cached.data, lastUpdated: cached.lastUpdated, sources: SOURCES });
+        return;
+      }
       const data = annotateValueBadges(DB);
+      saveToStorage(data, RESEARCH_DATE);
       resolve({ data, lastUpdated: RESEARCH_DATE, sources: SOURCES });
     }, 300);
   });
 }
 
-// Simulated "refresh" — in this sandbox we can't hit KaBuM/ML live, so this
-// just re-confirms the frozen snapshot and is honest about that limitation.
-function apiRequestRefresh() {
+// Simulated "refresh": can't hit KaBuM live from the browser, so this
+// simulates a fresh research pass on top of whatever is currently loaded,
+// then persists the result to localStorage (so it survives a reload) and
+// hands the new dataset back to the UI so everything updates immediately.
+function apiRequestRefresh(currentDb) {
   return new Promise((resolve) => {
     setTimeout(() => {
+      const data = simulateFluctuation(currentDb);
+      const lastUpdated = new Date().toISOString().slice(0, 10);
+      saveToStorage(data, lastUpdated);
       resolve({
         ok: true,
+        data,
+        lastUpdated,
         message:
-          "Estes preços são de uma pesquisa fixa (não ao vivo). Para valores atualizados, peça a nova pesquisa no chat com o Claude.",
+          "Simulei uma nova rodada de preços/estoque (este ambiente não acessa o KaBuM ao vivo) e salvei no localStorage — os valores acima já são os novos.",
       });
     }, 900);
   });
@@ -717,6 +791,12 @@ function OptionCard({ item, selected, onSelect, accent }) {
             {item.sticks && <Badge>{item.sticks} pentes</Badge>}
             {item.tag && <Badge tone={item.tag === "Overclock" ? "ok" : "neutral"}>{item.tag}</Badge>}
             {item.pair && <Badge>Par completo na marca</Badge>}
+            {(item.pixDiscountPct || item.cardDiscountPct) && (
+              <Badge tone="warn">
+                <Tag size={9} className="inline -mt-px mr-0.5" />
+                Promoção {item.pixDiscountPct ? `${item.pixDiscountPct}% OFF` : ""}
+              </Badge>
+            )}
             {item.valueBadge && (
               <Badge tone="value">
                 <Tag size={9} className="inline -mt-px mr-0.5" />
@@ -824,6 +904,12 @@ function OptionCard({ item, selected, onSelect, accent }) {
 function CategoryAccordion({ catKey, label, Icon, items, selectedId, onSelect, accent, openKey, setOpenKey }) {
   const isOpen = openKey === catKey;
   const selectedItem = items.find((i) => i.id === selectedId);
+  // Cheapest first, always — out-of-stock items sink to the bottom regardless
+  // of price so the person isn't led to pick something they can't buy today.
+  const sortedItems = [...items].sort((a, b) => {
+    if (a.inStock !== b.inStock) return a.inStock ? -1 : 1;
+    return a.price - b.price;
+  });
 
   return (
     <div className="rounded-2xl border border-white/10 overflow-hidden" style={{ background: SURFACE }}>
@@ -862,8 +948,9 @@ function CategoryAccordion({ catKey, label, Icon, items, selectedId, onSelect, a
             <div className="flex items-start gap-1.5 text-xs text-slate-400 leading-relaxed px-1 pb-1">
               <Info size={11} className="mt-0.5 shrink-0" />
               <span>
-                "Melhor custo-benefício" = menor R$ por fps médio nos 10 jogos da aba
-                Jogos, calculado separadamente para RTX 5070 e RTX 5070 Ti.
+                Ordenado do mais barato pro mais caro (qualquer marca). "Melhor
+                custo-benefício" = menor R$ por fps médio nos 10 jogos da aba Jogos,
+                calculado separadamente para RTX 5070 e RTX 5070 Ti.
               </span>
             </div>
           )}
@@ -876,7 +963,7 @@ function CategoryAccordion({ catKey, label, Icon, items, selectedId, onSelect, a
               </span>
             </div>
           )}
-          {items.map((item) => (
+          {sortedItems.map((item) => (
             <OptionCard
               key={item.id}
               item={item}
@@ -1265,8 +1352,10 @@ export default function PCConfigComparator() {
   const handleRefresh = () => {
     setRefreshing(true);
     setRefreshMsg("");
-    apiRequestRefresh().then((res) => {
+    apiRequestRefresh(db).then((res) => {
       setRefreshing(false);
+      setDb(res.data);
+      setLastUpdated(res.lastUpdated);
       setRefreshMsg(res.message);
     });
   };
