@@ -32,7 +32,10 @@ Publicado como site **estático** no GitHub Pages. Sem backend.
 2. **`GAMES`** — 20 jogos "mais bonitos" por consenso da comunidade (inclui Cyberpunk 2077 PT,
    Alan Wake 2, RDR2, Ghost of Tsushima…). Cada um: `fps5070Ti` (base @1440p), `gap5070`
    (razão 5070÷5070Ti), `source`, `note`, `tags`, `studio`, `released`.
-3. **Modelo de FPS** — `RESOLUTIONS`, `ramIndex`, `platformFactor`, `estimateFps`.
+3. **Modelo de FPS** — `RESOLUTIONS`, `ramIndex`, `platformFactor`, `estimateFps`,
+   `fpsTier` (verde/âmbar/vermelho = Fluido/Jogável/Trava, ≥60/30-59/<30 — convenção
+   padrão de calculadoras de FPS) e `demandTier` (Leve/Médio/Pesado/Extremo, bucket
+   honesto sobre o próprio `fps5070Ti` — não é dado novo, só rótulo sobre dado existente).
 4. **`annotateValueBadges`** — marca "melhor custo-benefício" por linha de GPU / tier de RAM.
 5. **Importação por link** — `importFromKabumLink` e helpers.
 6. **Persistência** — `loadFromStorage` / `saveToStorage` (localStorage) + simulador de

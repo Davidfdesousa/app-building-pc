@@ -786,6 +786,26 @@ function estimateFps(game, gpu, cpu, ram, resolutionId) {
   );
 }
 
+// FPS tier — the standard green/amber/red convention used across FPS
+// calculators (e.g. pc-builds.com): ≥60 reads as smooth, 30–59 as playable
+// but choppy, <30 as struggling. Colors match BRAND_GREEN and the app's
+// existing amber/red vocabulary (Badge tones).
+function fpsTier(fps) {
+  if (fps >= 60) return { label: "Fluido", color: BRAND_GREEN };
+  if (fps >= 30) return { label: "Jogável", color: "#FBBF24" };
+  return { label: "Trava", color: "#F87171" };
+}
+
+// Demand tier — how heavy the game itself is, independent of your config.
+// Bucketed directly from fps5070Ti (our real, sourced 1440p baseline) — not
+// a new number, just a readable label over data that's already there.
+function demandTier(fps5070Ti) {
+  if (fps5070Ti >= 130) return { label: "Leve", color: BRAND_GREEN };
+  if (fps5070Ti >= 100) return { label: "Médio", color: "#A3E635" };
+  if (fps5070Ti >= 70) return { label: "Pesado", color: "#FBBF24" };
+  return { label: "Extremo", color: "#F87171" };
+}
+
 // ----------------------------------------------------------------------------
 // Cost-benefit annotation — runs once on the "backend" (mock) after fetch.
 // For GPUs: groups by `line` (RTX 5070 vs RTX 5070 Ti) and flags the card
@@ -1740,6 +1760,8 @@ function CompareView({ configA, configB, db }) {
 
 // Single game row: two FPS bars (Config A/B) plus its note and source.
 // `featured` gives it the pink accent used for the first result in the list.
+// Bar fill + fps text are colored by fpsTier() (green/amber/red — smooth/
+// playable/struggling), the "A"/"B" letter keeps the config's identity color.
 function GameFpsCard({ game, maxFps, refreshCap, featured }) {
   const cappedA = !!(refreshCap && game.fpsA >= refreshCap);
   const cappedB = !!(refreshCap && game.fpsB >= refreshCap);
@@ -1747,6 +1769,7 @@ function GameFpsCard({ game, maxFps, refreshCap, featured }) {
     { key: "A", fps: game.fpsA, capped: cappedA, accent: CONFIG_THEME.A.accent },
     { key: "B", fps: game.fpsB, capped: cappedB, accent: CONFIG_THEME.B.accent },
   ];
+  const demand = demandTier(game.fps5070Ti);
   return (
     <div
       className="rounded-2xl border p-4"
@@ -1770,6 +1793,12 @@ function GameFpsCard({ game, maxFps, refreshCap, featured }) {
           </div>
         </div>
         <div className="flex gap-1 shrink-0 flex-wrap justify-end max-w-[45%]">
+          <span
+            className="inline-flex items-center rounded-full border px-2 py-0.5 text-xs font-medium"
+            style={{ color: demand.color, borderColor: `${demand.color}40`, background: `${demand.color}14` }}
+          >
+            {demand.label}
+          </span>
           {game.tags.map((t) => (
             <Badge key={t}>{t}</Badge>
           ))}
@@ -1777,25 +1806,31 @@ function GameFpsCard({ game, maxFps, refreshCap, featured }) {
       </div>
 
       <div className="mt-3 space-y-1.5">
-        {rows.map((r) => (
-          <div key={r.key} className="flex items-center gap-2">
-            <span className="w-6 font-mono text-xs font-bold shrink-0" style={{ color: r.accent }}>
-              {r.key}
-            </span>
-            <div className="flex-1 h-2.5 rounded-full bg-white/5 overflow-hidden">
-              <div
-                className="h-full rounded-full transition-all"
-                style={{
-                  width: `${(Math.min(r.fps, refreshCap ?? r.fps) / maxFps) * 100}%`,
-                  background: r.accent,
-                }}
-              />
+        {rows.map((r) => {
+          const tier = fpsTier(r.fps);
+          return (
+            <div key={r.key} className="flex items-center gap-2">
+              <span className="w-6 font-mono text-xs font-bold shrink-0" style={{ color: r.accent }}>
+                {r.key}
+              </span>
+              <div className="flex-1 h-2.5 rounded-full bg-white/5 overflow-hidden">
+                <div
+                  className="h-full rounded-full transition-all"
+                  style={{
+                    width: `${(Math.min(r.fps, refreshCap ?? r.fps) / maxFps) * 100}%`,
+                    background: tier.color,
+                  }}
+                />
+              </div>
+              <span
+                className="font-mono text-xs w-28 text-right shrink-0"
+                style={{ color: tier.color }}
+              >
+                {r.fps} fps · {tier.label}{r.capped ? " 🔒" : ""}
+              </span>
             </div>
-            <span className="font-mono text-xs text-slate-300 w-20 text-right shrink-0">
-              {r.fps} fps{r.capped ? " 🔒" : ""}
-            </span>
-          </div>
-        ))}
+          );
+        })}
       </div>
 
       <div className="mt-2.5 flex items-start gap-1 text-xs text-slate-400 leading-relaxed">
