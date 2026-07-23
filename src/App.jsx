@@ -18,6 +18,8 @@ import {
   PackageCheck,
   PackageX,
   Link as LinkIcon,
+  Search,
+  Star,
 } from "lucide-react";
 
 // lucide-react dropped brand/logo icons (Github included) some versions back,
@@ -481,10 +483,11 @@ const DB = {
 // GPU-dominant: at 1440p/4K these games are GPU-bound, so CPU/RAM move the
 // number only a little (that's the real physics, not a limitation).
 //
-// Game list = the 10 most visually acclaimed titles from 2025 up to today,
-// mixing the Steam Awards 2025 community vote ("Estilo Visual Excepcional")
-// with Digital Foundry's "Best Graphics of 2025" ranking and critical/
-// community reception for 2026 releases not yet eligible for a Steam Award.
+// Game list = 20 of the most visually acclaimed titles by community consensus
+// — the 2025/2026 showcase releases plus enduring "prettiest games" favorites
+// (Cyberpunk 2077 PT, Alan Wake 2, RDR2, Ghost of Tsushima, etc.), mixing the
+// Steam Awards 2025 community vote ("Estilo Visual Excepcional"), Digital
+// Foundry's "Best Graphics of 2025" ranking and broad critical reception.
 //
 // GPU scaling (RTX 5070 vs RTX 5070 Ti) — sources:
 // - Sportskeeda benchmark of Resident Evil Requiem on RTX 5070 Ti 1440p Max
@@ -612,6 +615,117 @@ const GAMES = [
     gap5070: 0.86, // RT só nos reflexos, jogo mais leve
     source: "Estimativa por escalonamento (RT parcial, jogo bem otimizado)",
     note: "RT só nos reflexos da carroceria (não é path tracing total), então os fps ficam mais altos.",
+  },
+  // ----- + 10 clássicos "mais bonitos" segundo a comunidade (incl. Cyberpunk) -----
+  {
+    id: "cyberpunk-2077",
+    name: "Cyberpunk 2077: Phantom Liberty",
+    studio: "CD Projekt RED · REDengine",
+    released: "set/2023",
+    tags: ["Path Tracing", "DLSS 4"],
+    fps5070Ti: 62, // 1440p, Path Tracing (RT Overdrive) + DLSS4 Q, sem frame gen
+    gap5070: 0.78, // PT alarga a distância entre as placas
+    source: "Benchmark real RTX 5070 Ti 1440p (Vortex/NoobFeed) — PT + DLSS4 Q",
+    note: "Número no modo Path Tracing (RT Overdrive). Só com RT (sem PT) sobe pra ~105 fps; com Frame Generation o FPS exibido praticamente dobra.",
+  },
+  {
+    id: "alan-wake-2",
+    name: "Alan Wake 2",
+    studio: "Remedy · Northlight",
+    released: "out/2023",
+    tags: ["Path Tracing", "DLSS 4"],
+    fps5070Ti: 70, // 1440p Full RT (PT) + DLSS4 Q, sem frame gen
+    gap5070: 0.80,
+    source: "Derivado de benchmark 1440p Full RT + DLSS (thefpsreview/Nvidia)",
+    note: "Um dos path tracings mais pesados que existem; sem frame generation exige DLSS Qualidade pra passar de 60 fps.",
+  },
+  {
+    id: "black-myth-wukong",
+    name: "Black Myth: Wukong",
+    studio: "Game Science · Unreal Engine 5",
+    released: "ago/2024",
+    tags: ["Full RT", "UE5"],
+    fps5070Ti: 64, // 1440p Very High RT + DLSS Q
+    gap5070: 0.80,
+    source: "Benchmark real RTX 5070 Ti 1440p (~64 fps, Very High RT + DLSS Q)",
+    note: "Com Full Ray Tracing ligado é bem pesado; a benchmark do Cinematic usa DLSS Qualidade pra manter jogável.",
+  },
+  {
+    id: "hellblade-2",
+    name: "Hellblade II: Senua's Saga",
+    studio: "Ninja Theory · Unreal Engine 5",
+    released: "mai/2024",
+    tags: ["UE5", "Cinemático"],
+    fps5070Ti: 95,
+    gap5070: 0.84, // UE5 com Lumen, sem PT total
+    source: "Estimativa por escalonamento (UE5 Lumen, referência de mesma classe)",
+    note: "Cinematográfico e linear (21:9 nativo); Lumen pesa, mas sem path tracing total sobra fps.",
+  },
+  {
+    id: "rdr2",
+    name: "Red Dead Redemption 2",
+    studio: "Rockstar · RAGE",
+    released: "nov/2019",
+    tags: ["Rasterização", "Mundo aberto"],
+    fps5070Ti: 150,
+    gap5070: 0.86, // sem RT, escala bem e roda alto
+    source: "Estimativa por escalonamento (rasterização pura, muito otimizado)",
+    note: "Sem ray tracing — envelheceu como um dos mundos abertos mais bonitos e roda folgado nessas placas.",
+  },
+  {
+    id: "horizon-forbidden-west",
+    name: "Horizon Forbidden West",
+    studio: "Guerrilla · Decima",
+    released: "mar/2024",
+    tags: ["Rasterização", "Mundo aberto"],
+    fps5070Ti: 120,
+    gap5070: 0.85,
+    source: "Estimativa por escalonamento (Decima, sem RT pesado)",
+    note: "Port de PC muito bem otimizado; vegetação e iluminação de tirar o fôlego sem depender de RT.",
+  },
+  {
+    id: "star-wars-outlaws",
+    name: "Star Wars Outlaws",
+    studio: "Massive · Snowdrop",
+    released: "ago/2024",
+    tags: ["RTGI", "Mundo aberto"],
+    fps5070Ti: 85,
+    gap5070: 0.82, // RTGI sempre ligado pesa
+    source: "Estimativa por escalonamento (Snowdrop com RTGI de fábrica)",
+    note: "Iluminação global por ray tracing sempre ativa — pesa parecido com os jogos Ubisoft de mundo aberto.",
+  },
+  {
+    id: "spider-man-2",
+    name: "Marvel's Spider-Man 2",
+    studio: "Insomniac · Nixxes",
+    released: "jan/2025",
+    tags: ["RT reflexos", "Mundo aberto"],
+    fps5070Ti: 110,
+    gap5070: 0.84,
+    source: "Estimativa por escalonamento (RT de reflexos, port Nixxes)",
+    note: "Reflexos por ray tracing na cidade inteira; port bem otimizado mantém os fps altos mesmo em travessia rápida.",
+  },
+  {
+    id: "ghost-of-tsushima",
+    name: "Ghost of Tsushima",
+    studio: "Sucker Punch · Nixxes",
+    released: "mai/2024",
+    tags: ["Rasterização", "Direção de arte"],
+    fps5070Ti: 140,
+    gap5070: 0.86,
+    source: "Estimativa por escalonamento (sem RT, port Nixxes exemplar)",
+    note: "Direção de arte premiada e um dos ports mais bem otimizados do PC — roda muito alto sem ray tracing.",
+  },
+  {
+    id: "msfs-2024",
+    name: "Microsoft Flight Simulator 2024",
+    studio: "Asobo Studio",
+    released: "nov/2024",
+    tags: ["Streaming", "Mundo real"],
+    fps5070Ti: 70,
+    gap5070: 0.88, // gargalo mais em CPU/streaming que em GPU pura
+    source: "Estimativa por escalonamento (limitado por CPU/streaming, não só GPU)",
+    note: "Planeta inteiro em streaming — costuma ser mais limitado por CPU e disco que pela GPU, então a diferença entre placas encolhe.",
   },
 ];
 
@@ -1405,7 +1519,7 @@ function CategoryAccordion({ catKey, label, Icon, items, selectedId, onSelect, o
               <Info size={11} className="mt-0.5 shrink-0" />
               <span>
                 Ordenado do mais barato pro mais caro (qualquer marca). "Melhor
-                custo-benefício" = menor R$ por fps médio nos 10 jogos da aba Jogos,
+                custo-benefício" = menor R$ por fps médio nos jogos da aba Jogos,
                 calculado separadamente para RTX 5070 e RTX 5070 Ti.
               </span>
             </div>
@@ -1624,8 +1738,79 @@ function CompareView({ configA, configB, db }) {
   );
 }
 
+// Single game row: two FPS bars (Config A/B) plus its note and source.
+// `featured` gives it the pink accent used for the first result in the list.
+function GameFpsCard({ game, maxFps, refreshCap, featured }) {
+  const cappedA = !!(refreshCap && game.fpsA >= refreshCap);
+  const cappedB = !!(refreshCap && game.fpsB >= refreshCap);
+  const rows = [
+    { key: "A", fps: game.fpsA, capped: cappedA, accent: CONFIG_THEME.A.accent },
+    { key: "B", fps: game.fpsB, capped: cappedB, accent: CONFIG_THEME.B.accent },
+  ];
+  return (
+    <div
+      className="rounded-2xl border p-4"
+      style={{
+        background: SURFACE,
+        borderColor: featured ? "rgba(244,114,182,0.45)" : "rgba(255,255,255,0.10)",
+        boxShadow: featured ? "0 0 0 1px rgba(244,114,182,0.25)" : undefined,
+      }}
+    >
+      <div className="flex items-start justify-between gap-2">
+        <div className="min-w-0">
+          {featured && (
+            <div className="mb-0.5 inline-flex items-center gap-1 text-xs font-bold" style={{ color: "#F472B6" }}>
+              <Star size={11} className="fill-current" />
+              Em destaque
+            </div>
+          )}
+          <div className="text-sm font-bold text-slate-100">{game.name}</div>
+          <div className="text-xs text-slate-400">
+            {game.studio} · {game.released}
+          </div>
+        </div>
+        <div className="flex gap-1 shrink-0 flex-wrap justify-end max-w-[45%]">
+          {game.tags.map((t) => (
+            <Badge key={t}>{t}</Badge>
+          ))}
+        </div>
+      </div>
+
+      <div className="mt-3 space-y-1.5">
+        {rows.map((r) => (
+          <div key={r.key} className="flex items-center gap-2">
+            <span className="w-6 font-mono text-xs font-bold shrink-0" style={{ color: r.accent }}>
+              {r.key}
+            </span>
+            <div className="flex-1 h-2.5 rounded-full bg-white/5 overflow-hidden">
+              <div
+                className="h-full rounded-full transition-all"
+                style={{
+                  width: `${(Math.min(r.fps, refreshCap ?? r.fps) / maxFps) * 100}%`,
+                  background: r.accent,
+                }}
+              />
+            </div>
+            <span className="font-mono text-xs text-slate-300 w-20 text-right shrink-0">
+              {r.fps} fps{r.capped ? " 🔒" : ""}
+            </span>
+          </div>
+        ))}
+      </div>
+
+      <div className="mt-2.5 flex items-start gap-1 text-xs text-slate-400 leading-relaxed">
+        <Info size={12} className="mt-0.5 shrink-0" />
+        <span>{game.note}</span>
+      </div>
+      <div className="mt-1 text-xs font-mono text-slate-400">fonte: {game.source}</div>
+    </div>
+  );
+}
+
 function GamesView({ configA, configB, db }) {
   const [resolution, setResolution] = useState("uw144");
+  const [query, setQuery] = useState("");
+
   const gpuA = db.gpu.find((g) => g.id === configA.gpu);
   const gpuB = db.gpu.find((g) => g.id === configB.gpu);
   const cpuA = db.cpu.find((c) => c.id === configA.cpu);
@@ -1639,142 +1824,153 @@ function GamesView({ configA, configB, db }) {
     fpsA: estimateFps(game, gpuA, cpuA, ramA, resolution),
     fpsB: estimateFps(game, gpuB, cpuB, ramB, resolution),
   }));
-  const maxFps = Math.max(...rows.map((g) => Math.max(g.fpsA, g.fpsB)), 1);
+
+  // Interactive game search — matches name, studio or tag. When something is
+  // typed the list narrows to the picked game(s); the first result is featured.
+  const q = query.trim().toLowerCase();
+  const filtered = q
+    ? rows.filter(
+        (g) =>
+          g.name.toLowerCase().includes(q) ||
+          g.studio.toLowerCase().includes(q) ||
+          g.tags.some((t) => t.toLowerCase().includes(q))
+      )
+    : rows;
+  const maxFps = Math.max(...filtered.map((g) => Math.max(g.fpsA, g.fpsB)), 1);
+
+  const configLines = [
+    { key: "A", accent: CONFIG_THEME.A.accent, cpu: cpuA, gpu: gpuA, ram: ramA },
+    { key: "B", accent: CONFIG_THEME.B.accent, cpu: cpuB, gpu: gpuB, ram: ramB },
+  ];
 
   return (
     <div className="space-y-3">
-      <div className="rounded-2xl border border-white/10 p-4" style={{ background: SURFACE }}>
-        <div className="flex items-center gap-2 mb-1">
-          <Gamepad2 size={16} className="text-slate-400" />
-          <span className="text-xs uppercase tracking-wider text-slate-400">
-            10 jogos mais bonitos de 2025 até hoje
+      {/* ---------- Header card (hierarquia: título → base → resolução → configs → nota) ---------- */}
+      <div className="rounded-2xl border border-white/10 p-4 space-y-3" style={{ background: SURFACE }}>
+        <div className="flex items-center justify-between gap-2">
+          <div className="flex items-center gap-2">
+            <span
+              className="flex h-8 w-8 items-center justify-center rounded-xl shrink-0"
+              style={{ background: "#F472B61A", color: "#F472B6" }}
+            >
+              <Gamepad2 size={16} />
+            </span>
+            <div>
+              <div className="text-sm font-black tracking-tight text-slate-100">Desempenho em jogos</div>
+              <div className="text-xs text-slate-400 -mt-0.5">estimativa que reage às suas peças</div>
+            </div>
+          </div>
+          <span className="rounded-full border border-white/10 bg-white/5 px-2 py-0.5 text-xs font-bold text-slate-300">
+            {GAMES.length} jogos
           </span>
         </div>
+
         <p className="text-xs text-slate-400 leading-relaxed">
-          FPS recalculado ao vivo a partir da <strong className="text-slate-300">GPU, CPU e RAM que você escolheu</strong>{" "}
-          em cada config — preset máximo, Ray/Path Tracing, DLSS 4 Qualidade, sem frame generation.
-          Base medida em RTX 5070 Ti @1440p; a escala 5070↔5070 Ti vem de benchmarks (TechPowerUp/Notebookcheck/Windows Central).
+          Base medida em <strong className="text-slate-300">RTX 5070 Ti @1440p</strong> · preset máx · RT/PT ·
+          DLSS 4 Qualidade · sem frame gen. A escala entre placas vem de benchmarks
+          (TechPowerUp / Notebookcheck / Windows Central).
         </p>
-        <div className="mt-2 flex items-start gap-1 text-xs leading-relaxed" style={{ color: BRAND_CYAN }}>
+
+        {/* Resolução — controle segmentado */}
+        <div>
+          <div className="text-xs uppercase tracking-wider text-slate-500 mb-1.5">Resolução da tela</div>
+          <div className="grid grid-cols-2 gap-1.5">
+            {RESOLUTIONS.map((r) => (
+              <button
+                key={r.id}
+                onClick={() => setResolution(r.id)}
+                className="rounded-lg py-1.5 text-xs font-bold border transition-colors"
+                style={
+                  resolution === r.id
+                    ? { background: "#F472B620", borderColor: "#F472B660", color: "#F472B6" }
+                    : { borderColor: "rgba(255,255,255,0.08)", color: "#94A3B8" }
+                }
+              >
+                {r.label}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        {/* Config A/B em destaque */}
+        <div className="grid gap-1.5">
+          {configLines.map((c) => (
+            <div
+              key={c.key}
+              className="flex items-center gap-2 rounded-lg border px-2.5 py-1.5"
+              style={{ borderColor: `${c.accent}33`, background: `${c.accent}0F` }}
+            >
+              <span
+                className="flex h-5 w-5 items-center justify-center rounded-md font-mono text-xs font-black shrink-0"
+                style={{ background: c.accent, color: "#0A0D13" }}
+              >
+                {c.key}
+              </span>
+              <span className="text-xs text-slate-200 truncate">
+                {c.cpu?.name} · {c.gpu?.brand} {c.gpu?.name} · {c.ram?.size}
+              </span>
+            </div>
+          ))}
+        </div>
+
+        {/* Nota de honestidade + cap de 144Hz */}
+        <div className="flex items-start gap-1.5 text-xs leading-relaxed" style={{ color: BRAND_CYAN }}>
           <Info size={12} className="mt-0.5 shrink-0" />
           <span>
             Nestas resoluções o FPS é <strong>dominado pela GPU</strong>. Entre estas CPUs (Ultra 7/9) a
-            diferença em jogos é de ~1–4% e some quase toda em 4K — e a RAM mexe menos de 1% no FPS médio
-            (capacidade não muda o médio, só evita travadas). Por isso trocar CPU/RAM aqui move pouco: é o
-            comportamento real, não um bug.
-          </span>
-        </div>
-
-        <div className="mt-3 grid grid-cols-2 gap-1.5">
-          {RESOLUTIONS.map((r) => (
-            <button
-              key={r.id}
-              onClick={() => setResolution(r.id)}
-              className="rounded-lg py-1.5 text-xs font-bold border transition-colors"
-              style={
-                resolution === r.id
-                  ? { background: "#F472B620", borderColor: "#F472B660", color: "#F472B6" }
-                  : { borderColor: "rgba(255,255,255,0.08)", color: "#94A3B8" }
-              }
-            >
-              {r.label}
-            </button>
-          ))}
-        </div>
-        {resMeta?.refreshCap && (
-          <div className="mt-2 flex items-start gap-1 text-xs text-slate-400 leading-relaxed">
-            <Info size={12} className="mt-0.5 shrink-0" />
-            <span>Monitor de 144Hz — fps acima disso não trazem quadros extras na tela, só folga de latência (🔒 = travando no teto do monitor).</span>
-          </div>
-        )}
-
-        <div className="mt-2 flex flex-col gap-0.5 text-xs font-mono">
-          <span style={{ color: CONFIG_THEME.A.accent }}>
-            A · {cpuA?.name} + {gpuA?.brand} {gpuA?.name} + {ramA?.size}
-          </span>
-          <span style={{ color: CONFIG_THEME.B.accent }}>
-            B · {cpuB?.name} + {gpuB?.brand} {gpuB?.name} + {ramB?.size}
+            diferença em jogos é de ~1–4% e some quase toda em 4K; a RAM mexe menos de 1% no FPS médio
+            (capacidade não muda o médio, só evita travadas). Trocar CPU/RAM aqui move pouco — é o
+            comportamento real.
+            {resMeta?.refreshCap ? " 🔒 = travando no teto de 144Hz do monitor." : ""}
           </span>
         </div>
       </div>
 
-      {rows.map((game) => {
-        const cappedA = !!(resMeta?.refreshCap && game.fpsA >= resMeta.refreshCap);
-        const cappedB = !!(resMeta?.refreshCap && game.fpsB >= resMeta.refreshCap);
-        return (
-        <div
-          key={game.id}
-          className="rounded-2xl border border-white/10 p-4" style={{ background: SURFACE }}
-        >
-          <div className="flex items-start justify-between gap-2">
-            <div>
-              <div className="text-sm font-bold text-slate-100">
-                {game.name}
-              </div>
-              <div className="text-xs text-slate-400">
-                {game.studio} · {game.released}
-              </div>
-            </div>
-            <div className="flex gap-1 shrink-0">
-              {game.tags.map((t) => (
-                <Badge key={t}>{t}</Badge>
-              ))}
-            </div>
-          </div>
-
-          <div className="mt-3 space-y-1.5">
-            <div className="flex items-center gap-2">
-              <span
-                className="w-6 font-mono text-xs font-bold shrink-0"
-                style={{ color: CONFIG_THEME.A.accent }}
-              >
-                A
-              </span>
-              <div className="flex-1 h-2.5 rounded-full bg-white/5 overflow-hidden">
-                <div
-                  className="h-full rounded-full transition-all"
-                  style={{
-                    width: `${(Math.min(game.fpsA, resMeta?.refreshCap ?? game.fpsA) / maxFps) * 100}%`,
-                    background: CONFIG_THEME.A.accent,
-                  }}
-                />
-              </div>
-              <span className="font-mono text-xs text-slate-300 w-20 text-right shrink-0">
-                {game.fpsA} fps{cappedA ? " 🔒" : ""}
-              </span>
-            </div>
-            <div className="flex items-center gap-2">
-              <span
-                className="w-6 font-mono text-xs font-bold shrink-0"
-                style={{ color: CONFIG_THEME.B.accent }}
-              >
-                B
-              </span>
-              <div className="flex-1 h-2.5 rounded-full bg-white/5 overflow-hidden">
-                <div
-                  className="h-full rounded-full transition-all"
-                  style={{
-                    width: `${(Math.min(game.fpsB, resMeta?.refreshCap ?? game.fpsB) / maxFps) * 100}%`,
-                    background: CONFIG_THEME.B.accent,
-                  }}
-                />
-              </div>
-              <span className="font-mono text-xs text-slate-300 w-20 text-right shrink-0">
-                {game.fpsB} fps{cappedB ? " 🔒" : ""}
-              </span>
-            </div>
-          </div>
-
-          <div className="mt-2.5 flex items-start gap-1 text-xs text-slate-400 leading-relaxed">
-            <Info size={12} className="mt-0.5 shrink-0" />
-            <span>{game.note}</span>
-          </div>
-          <div className="mt-1 text-xs font-mono text-slate-400">
-            fonte: {game.source}
-          </div>
+      {/* ---------- Busca interativa de jogo ---------- */}
+      <div className="rounded-2xl border border-white/10 p-3 space-y-2" style={{ background: SURFACE }}>
+        <div className="relative">
+          <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-500" />
+          <input
+            list="games-list"
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            placeholder="Buscar um jogo (ex: Cyberpunk, UE5, Path Tracing)…"
+            className="w-full rounded-xl border border-white/10 bg-black/20 pl-9 pr-3 py-2 text-sm text-slate-100 placeholder:text-slate-500 focus:outline-none focus:border-white/30"
+          />
+          <datalist id="games-list">
+            {GAMES.map((g) => (
+              <option key={g.id} value={g.name} />
+            ))}
+          </datalist>
         </div>
-        );
-      })}
+        <div className="flex items-center justify-between px-0.5 text-xs text-slate-500">
+          <span>
+            mostrando <strong className="text-slate-300">{filtered.length}</strong> de {GAMES.length} jogos
+          </span>
+          {q && (
+            <button onClick={() => setQuery("")} className="text-slate-400 underline underline-offset-2">
+              limpar
+            </button>
+          )}
+        </div>
+      </div>
+
+      {/* ---------- Lista (primeiro resultado = card em destaque) ---------- */}
+      {filtered.length === 0 ? (
+        <div className="rounded-2xl border border-white/10 p-6 text-center text-sm text-slate-400" style={{ background: SURFACE }}>
+          Nenhum jogo encontrado para “{query}”.
+        </div>
+      ) : (
+        filtered.map((game, i) => (
+          <GameFpsCard
+            key={game.id}
+            game={game}
+            maxFps={maxFps}
+            refreshCap={resMeta?.refreshCap}
+            featured={i === 0}
+          />
+        ))
+      )}
     </div>
   );
 }
