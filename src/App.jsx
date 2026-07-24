@@ -903,7 +903,18 @@ const KNOWN_BRANDS = [
   "Cooler Master", "NZXT", "be quiet!", "Thermaltake", "DeepCool",
   "Lian Li", "Biostar", "ASRock", "Pichau", "Rise Mode", "T-Force",
   "G.Skill", "Seagate", "Hikvision", "Redragon", "Logitech", "HyperX",
+  "Vinik", "Husky", "Inno3D", "Gainward", "PCYes", "Bluecase", "K-Mex",
+  "Duex", "Multilaser", "C3Tech", "Vx Gaming",
 ];
+
+// Generic Portuguese category/connector words that lead a KaBuM title and
+// must never be mistaken for the brand (the old fallback picked "De" out of
+// "Placa De Vídeo Vinik Rx 580..." because it just took the 2nd word).
+const BRAND_STOPWORDS = new Set([
+  "placa", "de", "do", "da", "video", "vídeo", "mãe", "mae", "memória",
+  "memoria", "ram", "processador", "fonte", "ssd", "gpu", "gaming", "para",
+  "com", "e", "notebook",
+]);
 
 function guessBrandFromName(name) {
   // Pick whichever known brand appears earliest in the title, not the first
@@ -920,8 +931,11 @@ function guessBrandFromName(name) {
     }
   }
   if (best) return best;
-  const words = name.trim().split(/\s+/);
-  return words[1] || words[0] || "KaBuM!";
+  // Fallback: first word that isn't a generic category/connector word —
+  // avoids picking "De"/"Para"/"Gaming" out of "Placa De Vídeo Gaming X...".
+  const words = name.trim().split(/\s+/).map((w) => w.replace(/[,.:;]+$/, ""));
+  const firstReal = words.find((w) => w && !BRAND_STOPWORDS.has(w.toLowerCase()));
+  return firstReal || words[0] || "KaBuM!";
 }
 
 function parsePriceValue(raw) {
@@ -948,9 +962,73 @@ function stripMarkdown(s) {
     .trim();
 }
 
+function truncateAtWord(s, maxLen) {
+  if (s.length <= maxLen) return s;
+  const cut = s.slice(0, maxLen);
+  const lastSpace = cut.lastIndexOf(" ");
+  return (lastSpace > maxLen * 0.6 ? cut.slice(0, lastSpace) : cut).trim() + "…";
+}
+
+// Specs: prefer KaBuM's own "Resumo gerado por IA" bullets (short, coherent
+// marketing sentences, present on most product pages) over the raw
+// "Especificações Técnicas" table — that table's formatting is inconsistent
+// across categories (sometimes clean "Label: Value" bullets, sometimes
+// unbulleted prose that reads as a run-on dump once flattened to one line).
+// Falls back to the technical table when there's no AI summary (some CPU
+// pages), then to a generic placeholder.
+function extractSpecsFromPage(text) {
+  const summaryIdx = text.indexOf("Resumo gerado por IA");
+  if (summaryIdx >= 0) {
+    const window = text.slice(summaryIdx, summaryIdx + 700);
+    const bullets = [...window.matchAll(/\n\*\s+(.+)/g)]
+      .map((m) => stripMarkdown(m[1]))
+      .filter(Boolean);
+    if (bullets.length) {
+      return bullets.slice(0, 2).map((b) => truncateAtWord(b, 80)).join(" · ");
+    }
+  }
+
+  const specMatch = text.match(/Especifica[cç][õo]es? T[ée]cnicas?\**:?\s*([\s\S]{0,800}?)(?:\n\*\*|\n#{2,3}\s|$)/);
+  if (specMatch) {
+    const bulletLines = specMatch[1]
+      .split(/\n\s*[-*]\s+/)
+      .map((s) => stripMarkdown(s).trim())
+      .filter(Boolean);
+    if (bulletLines.length) {
+      return bulletLines.slice(0, 3).map((b) => truncateAtWord(b, 55)).join(" · ");
+    }
+  }
+
+  return "";
+}
+
+// Pricing: mirrors the catalog DB's own shape (price/priceOriginal/
+// pixDiscountPct/cardPrice/cardInstallment/cardDiscountPct) so an imported
+// item renders with the same PIX-vs-cartão two-column breakdown as a
+// curated one, instead of falling back to a bare single price + installment.
+function extractPricingFromPage(text) {
+  const priceIdx = text.search(/####\s*R\$/);
+  if (priceIdx < 0) return { price: null };
+  const block = text.slice(Math.max(0, priceIdx - 120), priceIdx + 400);
+
+  const pixMatch = block.match(/####\s*R\$\s?([\d.,]+)/);
+  const pixDiscMatch = block.match(/PIX com\*{0,2}(\d+)% de desconto/);
+  const cardMatch = block.match(/\*{2}R\$\s?([\d.,]+)\*{2,4}em até (\d+) ?x de\*{2,4}R\$\s?([\d.,]+)/);
+  const cardDiscMatch = block.match(/1x com\*{0,2}(\d+)% de desconto.{0,10}no cart[aã]o/);
+  const originalMatch = block.match(/R\$\s?([\d.,]+)\s*\n+\s*####/);
+
+  return {
+    price: parsePriceValue(pixMatch?.[1]),
+    priceOriginal: parsePriceValue(originalMatch?.[1]) ?? undefined,
+    pixDiscountPct: pixDiscMatch ? Number(pixDiscMatch[1]) : undefined,
+    cardPrice: parsePriceValue(cardMatch?.[1]) ?? undefined,
+    cardInstallment: cardMatch ? `${cardMatch[2]}x R$ ${cardMatch[3]}` : undefined,
+    cardDiscountPct: cardDiscMatch ? Number(cardDiscMatch[1]) : undefined,
+  };
+}
+
 // Primary path: r.jina.ai returns the page as readable markdown. KaBuM's
-// product price renders as a "#### R$X.XXX,XX" heading, and the spec list
-// sits under an "Especificações Técnicas" section — both held steady across
+// product price renders as a "#### R$X.XXX,XX" heading, held steady across
 // every category tested (CPU/GPU/RAM/mobo/PSU/SSD).
 async function importViaJinaReader(url) {
   const res = await fetch(JINA_READER_PREFIX + url);
@@ -961,19 +1039,15 @@ async function importViaJinaReader(url) {
   const name = titleMatch?.[1]?.trim();
   if (!name) throw new Error("sem título");
 
-  const priceMatch = text.match(/####\s*R\$\s?([\d.,]+)/);
-  const price = parsePriceValue(priceMatch?.[1]);
-
-  const specMatch = text.match(/Especifica[cç][õo]es? T[ée]cnicas?\**:?\s*([\s\S]{0,600}?)(?:\n\*\*|\n#{2,3}\s|$)/);
-  const specs = specMatch ? stripMarkdown(specMatch[1]).slice(0, 160) : "";
-
+  const pricing = extractPricingFromPage(text);
+  const specs = extractSpecsFromPage(text);
   const outOfStock = /Produto indispon[íi]vel|Esgotado/i.test(text.slice(0, text.indexOf("Sobre o produto") + 1 || 4000));
 
   return {
     name,
-    price,
     specs: specs || "Importado do link — sem specs detalhadas.",
     inStock: !outOfStock,
+    ...pricing,
   };
 }
 
@@ -1024,11 +1098,19 @@ async function importViaHtmlProxy(url) {
   };
 }
 
+// Session-only cache of fully-resolved imports, keyed by URL — a search
+// suggestion clicked twice (or picked again after a previous cache hit
+// elsewhere) skips the network entirely instead of re-fetching the product
+// page. Complements `searchResultsCache` (which only caches the search
+// listing, not the per-product detail fetch that happens on pick).
+const productImportCache = new Map();
+
 async function importFromKabumLink(rawUrl) {
   const url = rawUrl.trim();
   if (!/kabum\.com\.br\/produto\//i.test(url)) {
     throw new Error("Isso não parece um link de produto do KaBuM! (precisa ter kabum.com.br/produto/...).");
   }
+  if (productImportCache.has(url)) return productImportCache.get(url);
 
   let extracted;
   try {
@@ -1045,18 +1127,28 @@ async function importFromKabumLink(rawUrl) {
   const id = `custom-${idMatch ? idMatch[1] : Date.now()}`;
   const price = extracted.price ?? 0;
 
-  return {
+  const item = {
     id,
     name: extracted.name,
     brand: guessBrandFromName(extracted.name),
     specs: extracted.specs,
     price,
     installment: price ? `10x ${formatBRL(price / 10)}` : "—",
+    // Same PIX/cartão breakdown fields the catalog DB uses — when present,
+    // OptionCard renders the two-column price block instead of a bare price,
+    // so an imported item looks exactly like a curated one.
+    priceOriginal: extracted.priceOriginal,
+    pixDiscountPct: extracted.pixDiscountPct,
+    cardPrice: extracted.cardPrice,
+    cardInstallment: extracted.cardInstallment,
+    cardDiscountPct: extracted.cardDiscountPct,
     source: "KaBuM!",
     link: url,
     inStock: extracted.inStock,
     imported: true,
   };
+  productImportCache.set(url, item);
+  return item;
 }
 
 // ----------------------------------------------------------------------------
@@ -1531,36 +1623,44 @@ function NameSearchInput({ accent, onAdd, searchFn, placeholder }) {
   const [manual, setManual] = useState({ name: "", price: "" });
   const debounceRef = useRef(null);
   const abortRef = useRef(null);
+  // Monotonic counter — the search that "owns" the current highest id is the
+  // only one allowed to commit state. This is the authoritative guard (not
+  // AbortController, which only cancels the network call): even if abort()
+  // ever fails to stop a stale fetch in time, its result still can't clobber
+  // a newer search's state, so a second/third search can never appear stuck.
+  const requestIdRef = useRef(0);
 
   useEffect(() => {
     const q = query.trim();
-    if (debounceRef.current) clearTimeout(debounceRef.current);
-    if (abortRef.current) abortRef.current.abort(); // supersede any in-flight search
+    clearTimeout(debounceRef.current);
     if (q.length < 3) {
+      requestIdRef.current += 1; // invalidate any in-flight search
+      if (abortRef.current) abortRef.current.abort();
       setResults([]);
       setStatus("idle");
       return undefined;
     }
     debounceRef.current = setTimeout(async () => {
+      if (abortRef.current) abortRef.current.abort();
       const controller = new AbortController();
       abortRef.current = controller;
+      const myRequestId = ++requestIdRef.current;
       setStatus("searching");
       setErrorMsg("");
+      setResults([]); // clear the previous query's results immediately, not just on success
       try {
         const list = await searchFn(q, controller.signal);
+        if (requestIdRef.current !== myRequestId) return; // superseded by a newer search
         setResults(list.slice(0, 8));
         setStatus("idle");
       } catch (err) {
-        if (err.name === "AbortError") return; // a newer keystroke already replaced this search
+        if (requestIdRef.current !== myRequestId) return;
         setResults([]);
         setErrorMsg(err.message || "Não consegui buscar agora.");
         setStatus("error");
       }
     }, 400);
-    return () => {
-      clearTimeout(debounceRef.current);
-      if (abortRef.current) abortRef.current.abort();
-    };
+    return () => clearTimeout(debounceRef.current);
   }, [query, searchFn]);
 
   const handlePick = async (result) => {
@@ -1814,6 +1914,12 @@ function LinkImportInput({ onAdd, accent }) {
 function CategoryAccordion({ catKey, label, Icon, items, selectedId, onSelect, onAddCustomItem, accent, openKey, setOpenKey }) {
   const isOpen = openKey === catKey;
   const selectedItem = items.find((i) => i.id === selectedId);
+  // Stable reference across re-renders (only changes if catKey does, which
+  // never happens for a mounted instance) — an inline arrow here would get a
+  // new identity every render, which is wasted work at best and a footgun
+  // at worst if anything downstream keys off it (see NameSearchInput's
+  // effect, which lists it as a dependency).
+  const categorySearchFn = useCallback((q, signal) => searchKabumByCategory(catKey, q, signal), [catKey]);
   // Cheapest first, always — out-of-stock items sink to the bottom regardless
   // of price so the person isn't led to pick something they can't buy today.
   const sortedItems = [...items].sort((a, b) => {
@@ -1856,7 +1962,7 @@ function CategoryAccordion({ catKey, label, Icon, items, selectedId, onSelect, o
         <div className="border-t border-white/10 p-3 space-y-2 bg-black/20">
           <NameSearchInput
             accent={accent}
-            searchFn={(q, signal) => searchKabumByCategory(catKey, q, signal)}
+            searchFn={categorySearchFn}
             placeholder={SEARCH_PLACEHOLDERS[catKey]}
             onAdd={(item) => onAddCustomItem(catKey, item)}
           />

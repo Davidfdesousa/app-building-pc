@@ -115,21 +115,56 @@ filtro certo. Testado contra várias queries reais por categoria (cpu/gpu/ram/mo
 ~95%+ de precisão. Escolher uma sugestão roda `importFromKabumLink` na URL encontrada — a
 busca é só descoberta, a extração final usa o mesmo pipeline confiável de sempre.
 
-**Gotcha de parsing**: o limite entre "markdown da imagem anterior" e "início do nome do
-produto" NÃO pode ser "o último `)` antes do link" — nomes de produto costumam ter parênteses
-próprios (ex: "32GB**(2x16GB)**"), o que cortava o nome ali por engano. A extração usa o
-último match completo de `\]\([^)]*\)` (fechamento real de um link/imagem markdown) como
+**Gotcha de parsing (busca)**: o limite entre "markdown da imagem anterior" e "início do nome
+do produto" NÃO pode ser "o último `)` antes do link" — nomes de produto costumam ter
+parênteses próprios (ex: "32GB**(2x16GB)**"), o que cortava o nome ali por engano. A extração
+usa o último match completo de `\]\([^)]*\)` (fechamento real de um link/imagem markdown) como
 fronteira. Também há uma checagem de sanidade (nome precisa ter espaço e não pode conter
 `http`/`.com`) pra descartar os raros casos em que nem isso resolve (URL de imagem longa
 demais pra caber na janela de 400 chars analisada).
 
-**Performance**: `r.jina.ai` cacheia agressivamente do lado deles — uma query repetida volta
-em ~1s, mas a **primeira vez que qualquer query exata é buscada pode levar até ~10s** (ele
-renderiza a página do zero). Isso é o gargalo dominante e não dá pra eliminar do nosso lado;
-em vez disso: `X-Timeout: 8` limita o pior caso, `searchResultsCache` (Map em memória, por
-sessão) deixa buscas repetidas/backspace instantâneas, e `NameSearchInput` cancela buscas
-obsoletas via `AbortController` quando o usuário continua digitando (evita empilhar várias
-requisições de ~10s). Se a proxy cair, `NameSearchInput` mostra fallback manual (nome+preço).
+**Card consistency (2026-07-23)**: item importado (por busca ou pelo `LinkImportInput`
+comentado) precisa renderizar **exatamente** como um item curado do `DB` — mesma marca, specs
+concisas, e o mesmo breakdown PIX/Cartão de duas colunas (`OptionCard` só mostra esse
+breakdown quando `item.cardPrice != null`). Três peças fazem isso funcionar:
+- `guessBrandFromName`: o fallback (quando nenhum `KNOWN_BRANDS` bate) pula palavras genéricas
+  via `BRAND_STOPWORDS` ("placa", "de", "vídeo", "gaming"...) em vez de pegar cegamente a
+  2ª palavra do título — isso pegava "De" como marca em "Placa De Vídeo Vinik Rx 580...".
+  `KNOWN_BRANDS` também ganhou marcas nativas do KaBuM (Vinik, Husky, Inno3D...).
+- `extractSpecsFromPage`: prioriza a seção **"Resumo gerado por IA"** do próprio KaBuM (2-3
+  frases curtas e coerentes, presente na maioria das páginas) em vez da tabela
+  "Especificações Técnicas" crua (formatação inconsistente entre categorias — vira uma
+  parede de texto cortada no meio da palavra quando achatada). Cai pro fallback da tabela
+  técnica só quando não há resumo de IA (visto em algumas páginas de CPU).
+- `extractPricingFromPage`: extrai o bloco de preço inteiro — `pixDiscountPct`, `cardPrice`,
+  `cardInstallment`, `cardDiscountPct`, `priceOriginal` — não só o preço PIX. Sem isso, item
+  importado sempre caía no branch "preço único" do `OptionCard`, visualmente diferente do
+  branch "PIX/Cartão" que os itens curados usam.
+
+**Cache de página de produto**: `productImportCache` (Map por URL, só de sessão) em
+`importFromKabumLink` — clicar na mesma sugestão duas vezes, ou reimportar o mesmo link, não
+refaz o fetch. Complementa o `searchResultsCache` (que só cacheia a *listagem* da busca, não
+o fetch da página de detalhe do produto que acontece ao escolher uma sugestão).
+
+**Performance da busca**: `r.jina.ai` cacheia agressivamente do lado deles — uma query
+repetida volta em ~1s, mas a **primeira vez que qualquer query exata é buscada pode levar até
+~10s** (ele renderiza a página do zero). Isso é o gargalo dominante e não dá pra eliminar do
+nosso lado; em vez disso: `X-Timeout: 8` limita o pior caso, `searchResultsCache` deixa buscas
+repetidas/backspace instantâneas, `productImportCache` evita refetch de página de produto, e
+`NameSearchInput` cancela buscas obsoletas quando o usuário continua digitando. Se a proxy
+cair, `NameSearchInput` mostra fallback manual (nome+preço).
+
+**Gotcha corrigido — segunda busca "travava"**: o `searchFn` passado a `NameSearchInput` era
+uma arrow function recriada a cada render do `CategoryAccordion` (identidade nova toda hora),
+e a lógica de debounce/abort dependia só do estado do `AbortController` pra decidir se um
+resultado ainda era válido — havia brecha de corrida onde uma busca antiga podia, em teoria,
+sobrescrever o estado de uma busca mais nova (ou simplesmente nada parecer acontecer na 2ª
+busca). Correção: `searchFn` agora é memoizado (`useCallback` no `CategoryAccordion`, preso
+só a `catKey`) e `NameSearchInput` usa um contador monotônico (`requestIdRef`) como guarda
+autoritativa — só a busca com o id mais alto pode commitar estado, `AbortController` só
+cancela o fetch de rede (otimização, não é mais a fonte de verdade). `results` também é
+limpo no INÍCIO de cada busca nova, não só no sucesso, pra nunca mostrar resultado de query
+antiga enquanto uma nova está carregando.
 
 ## Gotcha de Tailwind (não repetir bug antigo)
 
