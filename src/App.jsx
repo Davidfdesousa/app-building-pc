@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo, useCallback } from "react";
+import { useState, useEffect, useMemo, useCallback, useRef } from "react";
 import {
   Cpu,
   Zap,
@@ -1061,6 +1061,79 @@ async function importFromKabumLink(rawUrl) {
 }
 
 // ----------------------------------------------------------------------------
+// Search-by-name — lets the user type "RTX 5070" instead of pasting a link.
+// Reads KaBuM's own search results page (kabum.com.br/busca/<query>) through
+// the same r.jina.ai reader used for single product pages, then regex-parses
+// the markdown link list. Tested against several real queries (rtx 5070, rx
+// 9070, rtx 5060 ti) — see conversation/commit history for the validation.
+//
+// The listing mixes real GPUs with notebooks, PC-Gamer bundles and upgrade
+// kits that merely *mention* a GPU model, so `looksLikeGpu` filters those
+// out by keyword. This step is discovery only — picking a suggestion still
+// runs the full `importFromKabumLink` against its URL, so the actual add
+// gets the same extraction (specs, accurate price) as pasting a link by hand.
+// Scoped to GPU for now (per request) — extend `looksLikeGpu`-style filters
+// per-category before wiring this into other accordions.
+// ----------------------------------------------------------------------------
+function looksLikeGpu(name) {
+  const n = name.toLowerCase();
+  if (/notebook|desktop|pc gamer|kit upgrade|processador\b|monitor|mouse|teclado|headset|cadeira|fonte\b|placa.m[aã]e/.test(n)) {
+    return false;
+  }
+  return /placa de v[ií]deo|^gpu\b|gddr(5|6x|6|7)/.test(n);
+}
+
+async function searchKabumProducts(query) {
+  const url = `https://www.kabum.com.br/busca/${encodeURIComponent(query)}`;
+  let text;
+  try {
+    text = await fetch(JINA_READER_PREFIX + url).then((r) => {
+      if (!r.ok) throw new Error(`jina respondeu ${r.status}`);
+      return r.text();
+    });
+  } catch {
+    throw new Error("Não consegui buscar agora (proxy indisponível). Tente de novo em instantes.");
+  }
+
+  const linkRe = /\]\((https:\/\/www\.kabum\.com\.br\/produto\/(\d+)\/[a-z0-9-]+)\)/gi;
+  const results = [];
+  const seenIds = new Set();
+  let m;
+  while ((m = linkRe.exec(text)) && results.length < 60) {
+    const id = m[2];
+    if (seenIds.has(id)) continue;
+    seenIds.add(id);
+    const link = m[1];
+
+    const windowText = text.slice(Math.max(0, m.index - 300), m.index);
+    const lastParen = windowText.lastIndexOf(")");
+    let nameChunk = (lastParen >= 0 ? windowText.slice(lastParen + 1) : windowText)
+      .replace(/Avalia[cç][ãa]o[^R]*?\d\.\d de 5\.0/gi, "")
+      .replace(/Produto Patrocinado/gi, "")
+      .replace(/Frete gr[aá]tis\*?/gi, "")
+      .trim();
+
+    const priceMatches = [...nameChunk.matchAll(/R\$\s?([\d.,]+)/g)];
+    const nameEndIdx = nameChunk.search(/R\$/);
+    const name = (nameEndIdx > 0 ? nameChunk.slice(0, nameEndIdx) : nameChunk).trim();
+    if (!name || name.length < 4) continue;
+
+    const hasDiscount = /Desconto/i.test(nameChunk);
+    const priceRaw = priceMatches.length
+      ? (hasDiscount && priceMatches[1] ? priceMatches[1][1] : priceMatches[0][1])
+      : null;
+
+    results.push({ id, name, link, price: parsePriceValue(priceRaw) });
+  }
+  return results;
+}
+
+async function searchKabumGpus(query) {
+  const results = await searchKabumProducts(query);
+  return results.filter((r) => looksLikeGpu(r.name));
+}
+
+// ----------------------------------------------------------------------------
 // Market-fluctuation simulator — used by "Atualizar pesquisa". This sandbox
 // has no way to actually re-scrape KaBuM from the browser (CORS + no
 // backend), so a refresh instead nudges prices/stock in plausible ways
@@ -1146,33 +1219,44 @@ const CATEGORIES = [
   { key: "ssd", label: "SSD M.2", icon: HardDrive },
 ];
 
+// Config A/B keep two distinguishable identities because that color-coding is
+// functional (tracking "which build" across price/FPS bars), not decorative —
+// but both stay inside the Steam system's restrained blue-gray family instead
+// of the old cyan/orange pairing. A = Action Blue lightened for text legibility
+// on dark surfaces; B = Steel Slate lightened, same family, cooler/neutral.
 const CONFIG_THEME = {
-  A: { accent: "#22D3EE", accentSoft: "rgba(34,211,238,0.12)", label: "Config A" },
-  B: { accent: "#F5A623", accentSoft: "rgba(245,166,35,0.12)", label: "Config B" },
+  A: { accent: "#4C86AC", accentSoft: "rgba(76,134,172,0.12)", label: "Config A" },
+  B: { accent: "#93A0AC", accentSoft: "rgba(147,160,172,0.12)", label: "Config B" },
 };
+// Shared identity for section tabs that aren't a config (Comparar/Jogos) — a
+// third restrained stop in the same family, not a config color.
+const ACCENT_UTILITY = "#6E92A8";
 
 // ----------------------------------------------------------------------------
-// Palette — dark surfaces are applied via inline `style`, not Tailwind
-// arbitrary-value classes (e.g. `bg-[#10141C]`), because this runtime only
-// ships a pre-built Tailwind stylesheet with no JIT compiler: any class using
-// square brackets (`bg-[...]`, `shadow-[...]`, `text-[12px]`, `bg-white/[0.03]`)
-// silently fails to apply. That was the actual cause of the "transparent
-// header on scroll" bug — the header's background/blur never rendered.
+// Palette — mapped from design-system-base.md (Steam design system export).
+// Dark surfaces are applied via inline `style`, not Tailwind arbitrary-value
+// classes (e.g. `bg-[#1C2836]`), because this runtime only ships a pre-built
+// Tailwind stylesheet with no JIT compiler: any class using square brackets
+// (`bg-[...]`, `shadow-[...]`, `text-[12px]`, `bg-white/[0.03]`) silently
+// fails to apply. That was the actual cause of the "transparent header on
+// scroll" bug — the header's background/blur never rendered.
 //
-// BRAND_GREEN below is extracted from ew.academy: near-black background,
-// a single vivid neon-green accent for CTAs/highlights/stat numbers, white
-// headlines, gray body text, and cyan-ish strikethrough pricing. The exact
-// green here (#39E67A) is slightly deeper than the site's raw neon (~#39FF6A)
-// specifically so it still reads clearly as *text* at 12-13px on our near-
-// black background (raw neon at small sizes gets a slight halation/glare
-// that hurts legibility) while keeping full AA/AAA contrast headroom.
+// Steam is a dark, utilitarian, commerce-driven marketplace UI: deep navy
+// backgrounds, square/low-radius components, restrained blue-gray accents,
+// minimal shadow, borders doing most of the separation work. BG/SURFACE/
+// BORDER_LINE below are the doc's literal tokens (Deep Background Navy,
+// Store Panel Navy, Gunmetal Line). BRAND_GREEN is kept but desaturated from
+// the old neon SaaS green — Steam itself uses colored badges for discounts/
+// review sentiment, so a semantic green (value badge, in-stock, FPS tiers)
+// is consistent with the system; it's just toned down to feel less neon.
 // ----------------------------------------------------------------------------
-const BG = "#0A0D13";
-const SURFACE = "#10141C";
-const BRAND_GREEN = "#39E67A";
-const BRAND_GREEN_BG = "rgba(57,230,122,0.12)";
-const BRAND_GREEN_BORDER = "rgba(57,230,122,0.35)";
-const BRAND_CYAN = "#5BC8E8"; // EW's strikethrough/secondary accent
+const BG = "#0F1924"; // Deep Background Navy
+const SURFACE = "#1C2836"; // Store Panel Navy
+const BORDER_LINE = "#313943"; // Gunmetal Line
+const BRAND_GREEN = "#4CAF7C";
+const BRAND_GREEN_BG = "rgba(76,175,124,0.12)";
+const BRAND_GREEN_BORDER = "rgba(76,175,124,0.35)";
+const TEXT_MIST = "#C6D4DF"; // Mist Text — softer secondary text/notes
 
 function formatBRL(v) {
   return v.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
@@ -1219,7 +1303,7 @@ function Badge({ children, tone = "neutral" }) {
   };
   return (
     <span
-      className={`inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-xs font-medium tracking-wide ${tones[tone]}`}
+      className={`inline-flex items-center gap-1 rounded-sm border px-2 py-0.5 text-xs font-medium tracking-wide ${tones[tone]}`}
     >
       {children}
     </span>
@@ -1231,7 +1315,7 @@ function OptionCard({ item, selected, onSelect, accent }) {
   return (
     <button
       onClick={() => onSelect(item.id)}
-      className={`w-full text-left rounded-xl border p-3 transition-colors ${
+      className={`w-full text-left rounded-sm border p-3 transition-colors ${
         selected
           ? "border-transparent"
           : "border-white/10 bg-white/5 active:bg-white/5"
@@ -1299,7 +1383,7 @@ function OptionCard({ item, selected, onSelect, accent }) {
         <div className="shrink-0 text-right">
           {selected && (
             <span
-              className="inline-flex items-center justify-center h-5 w-5 rounded-full mb-1"
+              className="inline-flex items-center justify-center h-5 w-5 rounded-sm mb-1"
               style={{ background: accent }}
             >
               <Check size={12} className="text-slate-900" strokeWidth={3} />
@@ -1310,7 +1394,7 @@ function OptionCard({ item, selected, onSelect, accent }) {
 
       {hasCardBreakdown ? (
         <div className="mt-2.5 grid grid-cols-2 gap-2">
-          <div className="rounded-lg bg-white/5 border border-white/5 px-2 py-1.5">
+          <div className="rounded-sm bg-white/5 border border-white/5 px-2 py-1.5">
             <div className="text-xs uppercase tracking-wide text-slate-400">
               PIX {item.pixDiscountPct ? `· ${item.pixDiscountPct}% OFF` : ""}
             </div>
@@ -1318,12 +1402,12 @@ function OptionCard({ item, selected, onSelect, accent }) {
               {formatBRL(item.price)}
             </div>
             {item.priceOriginal && (
-              <div className="font-mono text-xs line-through" style={{ color: BRAND_CYAN }}>
+              <div className="font-mono text-xs line-through" style={{ color: TEXT_MIST }}>
                 {formatBRL(item.priceOriginal)}
               </div>
             )}
           </div>
-          <div className="rounded-lg bg-white/5 border border-white/5 px-2 py-1.5">
+          <div className="rounded-sm bg-white/5 border border-white/5 px-2 py-1.5">
             <div className="text-xs uppercase tracking-wide text-slate-400">
               Cartão {item.cardDiscountPct ? `· ${item.cardDiscountPct}% à vista` : ""}
             </div>
@@ -1354,13 +1438,120 @@ function OptionCard({ item, selected, onSelect, accent }) {
           target="_blank"
           rel="noreferrer"
           onClick={(e) => e.stopPropagation()}
-          className="inline-flex items-center gap-1 rounded-lg border border-white/10 px-2 py-1 text-xs text-slate-300 active:bg-white/10"
+          className="inline-flex items-center gap-1 rounded-sm border border-white/10 px-2 py-1 text-xs text-slate-300 active:bg-white/10"
         >
           {item.source}
           <ExternalLink size={11} />
         </a>
       </div>
     </button>
+  );
+}
+
+// Search-by-name input — type "RTX 5070" instead of pasting a link. Debounced
+// live search against searchFn (e.g. searchKabumGpus), showing name+price
+// suggestions; picking one runs the full importFromKabumLink against its URL
+// so the added item gets the same extraction quality as a pasted link.
+function NameSearchInput({ accent, onAdd, searchFn, placeholder }) {
+  const [query, setQuery] = useState("");
+  const [results, setResults] = useState([]);
+  const [status, setStatus] = useState("idle"); // idle | searching | error
+  const [errorMsg, setErrorMsg] = useState("");
+  const [importingId, setImportingId] = useState(null);
+  const debounceRef = useRef(null);
+
+  useEffect(() => {
+    const q = query.trim();
+    if (debounceRef.current) clearTimeout(debounceRef.current);
+    if (q.length < 3) {
+      setResults([]);
+      setStatus("idle");
+      return undefined;
+    }
+    debounceRef.current = setTimeout(async () => {
+      setStatus("searching");
+      setErrorMsg("");
+      try {
+        const list = await searchFn(q);
+        setResults(list.slice(0, 8));
+        setStatus("idle");
+      } catch (err) {
+        setResults([]);
+        setErrorMsg(err.message || "Não consegui buscar agora.");
+        setStatus("error");
+      }
+    }, 450);
+    return () => clearTimeout(debounceRef.current);
+  }, [query, searchFn]);
+
+  const handlePick = async (result) => {
+    setImportingId(result.id);
+    setErrorMsg("");
+    try {
+      const item = await importFromKabumLink(result.link);
+      onAdd(item);
+      setQuery("");
+      setResults([]);
+      setStatus("idle");
+    } catch (err) {
+      setErrorMsg(err.message || "Não consegui importar esse produto.");
+      setStatus("error");
+    } finally {
+      setImportingId(null);
+    }
+  };
+
+  return (
+    <div className="rounded-sm border border-white/10 bg-white/5 p-2.5 space-y-2">
+      <div className="flex items-center gap-1.5 text-xs text-slate-400">
+        <Search size={12} />
+        <span>Buscar por nome no KaBuM!</span>
+      </div>
+      <input
+        type="text"
+        value={query}
+        onChange={(e) => setQuery(e.target.value)}
+        placeholder={placeholder}
+        className="w-full rounded-sm border border-white/10 bg-black/20 px-2.5 py-1.5 text-xs text-slate-100 placeholder:text-slate-500 focus:outline-none focus:border-white/30"
+      />
+
+      {status === "searching" && (
+        <div className="text-xs text-slate-400">buscando…</div>
+      )}
+
+      {status === "error" && (
+        <div className="flex items-start gap-1 text-xs text-amber-300/90">
+          <AlertTriangle size={12} className="mt-0.5 shrink-0" />
+          <span>{errorMsg}</span>
+        </div>
+      )}
+
+      {results.length > 0 && (
+        <div className="space-y-1 max-h-64 overflow-y-auto">
+          {results.map((r) => (
+            <button
+              key={r.id}
+              onClick={() => handlePick(r)}
+              disabled={importingId !== null}
+              className="w-full flex items-center justify-between gap-2 rounded-sm border border-white/10 bg-black/20 px-2.5 py-1.5 text-left active:bg-white/10 disabled:opacity-50"
+            >
+              <span className="min-w-0 flex-1 truncate text-xs text-slate-200">{r.name}</span>
+              {importingId === r.id ? (
+                <RefreshCw size={12} className="shrink-0 animate-spin" style={{ color: accent }} />
+              ) : (
+                <span className="shrink-0 font-mono text-xs font-bold" style={{ color: accent }}>
+                  {r.price ? formatBRL(r.price) : "—"}
+                </span>
+              )}
+            </button>
+          ))}
+        </div>
+      )}
+
+      {status === "idle" && query.trim().length >= 3 && results.length === 0 && (
+        <div className="text-xs text-slate-500">Nenhum resultado pra "{query.trim()}".</div>
+      )}
+    </div>
   );
 }
 
@@ -1412,7 +1603,7 @@ function LinkImportInput({ onAdd, accent }) {
   };
 
   return (
-    <div className="rounded-xl border border-white/10 bg-white/5 p-2.5 space-y-2">
+    <div className="rounded-sm border border-white/10 bg-white/5 p-2.5 space-y-2">
       <div className="flex items-center gap-1.5 text-xs text-slate-400">
         <LinkIcon size={12} />
         <span>Colar link do produto (KaBuM!) para reconhecer automaticamente</span>
@@ -1434,12 +1625,12 @@ function LinkImportInput({ onAdd, accent }) {
           onKeyDown={(e) => {
             if (e.key === "Enter") runImport(url);
           }}
-          className="flex-1 min-w-0 rounded-lg border border-white/10 bg-black/20 px-2.5 py-1.5 text-xs text-slate-100 placeholder:text-slate-500 focus:outline-none focus:border-white/30"
+          className="flex-1 min-w-0 rounded-sm border border-white/10 bg-black/20 px-2.5 py-1.5 text-xs text-slate-100 placeholder:text-slate-500 focus:outline-none focus:border-white/30"
         />
         <button
           onClick={() => runImport(url)}
           disabled={status === "loading" || !url.trim()}
-          className="shrink-0 rounded-lg px-3 py-1.5 text-xs font-bold disabled:opacity-50"
+          className="shrink-0 rounded-sm px-3 py-1.5 text-xs font-bold disabled:opacity-50"
           style={{ background: `${accent}20`, color: accent, border: `1px solid ${accent}50` }}
         >
           {status === "loading" ? (
@@ -1465,18 +1656,18 @@ function LinkImportInput({ onAdd, accent }) {
             placeholder="Nome do produto"
             value={manual.name}
             onChange={(e) => setManual((m) => ({ ...m, name: e.target.value }))}
-            className="w-full rounded-lg border border-white/10 bg-black/20 px-2.5 py-1.5 text-xs text-slate-100 placeholder:text-slate-500 focus:outline-none"
+            className="w-full rounded-sm border border-white/10 bg-black/20 px-2.5 py-1.5 text-xs text-slate-100 placeholder:text-slate-500 focus:outline-none"
           />
           <input
             placeholder="Preço (ex: 1299,99)"
             value={manual.price}
             onChange={(e) => setManual((m) => ({ ...m, price: e.target.value }))}
-            className="w-full rounded-lg border border-white/10 bg-black/20 px-2.5 py-1.5 text-xs text-slate-100 placeholder:text-slate-500 focus:outline-none"
+            className="w-full rounded-sm border border-white/10 bg-black/20 px-2.5 py-1.5 text-xs text-slate-100 placeholder:text-slate-500 focus:outline-none"
           />
           <button
             onClick={handleManualAdd}
             disabled={!manual.name.trim()}
-            className="w-full rounded-lg py-1.5 text-xs font-bold disabled:opacity-50"
+            className="w-full rounded-sm py-1.5 text-xs font-bold disabled:opacity-50"
             style={{ background: `${accent}20`, color: accent, border: `1px solid ${accent}50` }}
           >
             Adicionar mesmo assim
@@ -1498,13 +1689,13 @@ function CategoryAccordion({ catKey, label, Icon, items, selectedId, onSelect, o
   });
 
   return (
-    <div className="rounded-2xl border border-white/10 overflow-hidden" style={{ background: SURFACE }}>
+    <div className="rounded-sm border border-white/10 overflow-hidden" style={{ background: SURFACE }}>
       <button
         onClick={() => setOpenKey(isOpen ? null : catKey)}
         className="w-full flex items-center gap-3 p-3.5 active:bg-white/5"
       >
         <span
-          className="flex h-9 w-9 items-center justify-center rounded-xl shrink-0"
+          className="flex h-9 w-9 items-center justify-center rounded-sm shrink-0"
           style={{ background: `${accent}1A`, color: accent }}
         >
           <Icon size={18} />
@@ -1530,6 +1721,14 @@ function CategoryAccordion({ catKey, label, Icon, items, selectedId, onSelect, o
 
       {isOpen && (
         <div className="border-t border-white/10 p-3 space-y-2 bg-black/20">
+          {catKey === "gpu" && (
+            <NameSearchInput
+              accent={accent}
+              searchFn={searchKabumGpus}
+              placeholder="Ex: RTX 5070, RX 9070 XT…"
+              onAdd={(item) => onAddCustomItem(catKey, item)}
+            />
+          )}
           <LinkImportInput
             accent={accent}
             onAdd={(item) => onAddCustomItem(catKey, item)}
@@ -1599,7 +1798,7 @@ function ConfigBuilder({ label, accent, config, setConfig, db, onAddCustomItem }
   return (
     <div className="space-y-3">
       <div
-        className="rounded-2xl p-4 border"
+        className="rounded-sm p-4 border"
         style={{ background: `${accent}12`, borderColor: `${accent}40` }}
       >
         <div className="flex items-center justify-between">
@@ -1608,7 +1807,7 @@ function ConfigBuilder({ label, accent, config, setConfig, db, onAddCustomItem }
           </span>
           <Scale size={16} style={{ color: accent }} />
         </div>
-        <div className="mt-1 font-mono text-3xl font-black text-slate-50 tabular-nums">
+        <div className="mt-1 font-mono text-3xl font-bold text-slate-50 tabular-nums">
           {formatBRL(total)}
         </div>
         <div className="text-xs text-slate-400 mt-0.5">
@@ -1655,16 +1854,16 @@ function CompareView({ configA, configB, db }) {
   return (
     <div className="space-y-4">
       {/* Signature diff meter */}
-      <div className="rounded-2xl border border-white/10 p-4" style={{ background: SURFACE }}>
+      <div className="rounded-sm border border-white/10 p-4" style={{ background: SURFACE }}>
         <div className="text-xs uppercase tracking-wider text-slate-400 mb-3">
           Diferença de preço
         </div>
         <div className="space-y-2">
           <div className="flex items-center gap-2">
             <span className="w-6 font-mono text-xs font-bold" style={{ color: CONFIG_THEME.A.accent }}>A</span>
-            <div className="flex-1 h-3 rounded-full bg-white/5 overflow-hidden">
+            <div className="flex-1 h-3 rounded-sm bg-white/5 overflow-hidden">
               <div
-                className="h-full rounded-full transition-all"
+                className="h-full rounded-sm transition-all"
                 style={{ width: `${pctA}%`, background: CONFIG_THEME.A.accent }}
               />
             </div>
@@ -1674,9 +1873,9 @@ function CompareView({ configA, configB, db }) {
           </div>
           <div className="flex items-center gap-2">
             <span className="w-6 font-mono text-xs font-bold" style={{ color: CONFIG_THEME.B.accent }}>B</span>
-            <div className="flex-1 h-3 rounded-full bg-white/5 overflow-hidden">
+            <div className="flex-1 h-3 rounded-sm bg-white/5 overflow-hidden">
               <div
-                className="h-full rounded-full transition-all"
+                className="h-full rounded-sm transition-all"
                 style={{ width: `${pctB}%`, background: CONFIG_THEME.B.accent }}
               />
             </div>
@@ -1711,14 +1910,14 @@ function CompareView({ configA, configB, db }) {
         return (
           <div
             key={key}
-            className="rounded-2xl border p-4"
+            className="rounded-sm border p-4"
             style={{ borderColor: `${theme.accent}40`, background: `${theme.accent}0A` }}
           >
             <div className="flex items-center justify-between mb-2">
               <span className="text-sm font-bold" style={{ color: theme.accent }}>
                 {theme.label}
               </span>
-              <span className="font-mono text-lg font-black text-slate-50">
+              <span className="font-mono text-lg font-bold text-slate-50">
                 {formatBRL(total)}
               </span>
             </div>
@@ -1772,17 +1971,17 @@ function GameFpsCard({ game, maxFps, refreshCap, featured }) {
   const demand = demandTier(game.fps5070Ti);
   return (
     <div
-      className="rounded-2xl border p-4"
+      className="rounded-sm border p-4"
       style={{
         background: SURFACE,
-        borderColor: featured ? "rgba(244,114,182,0.45)" : "rgba(255,255,255,0.10)",
-        boxShadow: featured ? "0 0 0 1px rgba(244,114,182,0.25)" : undefined,
+        borderColor: featured ? `${ACCENT_UTILITY}70` : "rgba(255,255,255,0.10)",
+        boxShadow: featured ? `0 0 0 1px ${ACCENT_UTILITY}40` : undefined,
       }}
     >
       <div className="flex items-start justify-between gap-2">
         <div className="min-w-0">
           {featured && (
-            <div className="mb-0.5 inline-flex items-center gap-1 text-xs font-bold" style={{ color: "#F472B6" }}>
+            <div className="mb-0.5 inline-flex items-center gap-1 text-xs font-bold" style={{ color: ACCENT_UTILITY }}>
               <Star size={11} className="fill-current" />
               Em destaque
             </div>
@@ -1792,9 +1991,9 @@ function GameFpsCard({ game, maxFps, refreshCap, featured }) {
             {game.studio} · {game.released}
           </div>
         </div>
-        <div className="flex gap-1 shrink-0 flex-wrap justify-end max-w-[45%]">
+        <div className="flex gap-1 shrink-0 flex-wrap justify-end" style={{ maxWidth: "45%" }}>
           <span
-            className="inline-flex items-center rounded-full border px-2 py-0.5 text-xs font-medium"
+            className="inline-flex items-center rounded-sm border px-2 py-0.5 text-xs font-medium"
             style={{ color: demand.color, borderColor: `${demand.color}40`, background: `${demand.color}14` }}
           >
             {demand.label}
@@ -1813,9 +2012,9 @@ function GameFpsCard({ game, maxFps, refreshCap, featured }) {
               <span className="w-6 font-mono text-xs font-bold shrink-0" style={{ color: r.accent }}>
                 {r.key}
               </span>
-              <div className="flex-1 h-2.5 rounded-full bg-white/5 overflow-hidden">
+              <div className="flex-1 h-2.5 rounded-sm bg-white/5 overflow-hidden">
                 <div
-                  className="h-full rounded-full transition-all"
+                  className="h-full rounded-sm transition-all"
                   style={{
                     width: `${(Math.min(r.fps, refreshCap ?? r.fps) / maxFps) * 100}%`,
                     background: tier.color,
@@ -1833,10 +2032,7 @@ function GameFpsCard({ game, maxFps, refreshCap, featured }) {
         })}
       </div>
 
-      <div className="mt-2.5 flex items-start gap-1 text-xs text-slate-400 leading-relaxed">
-        <Info size={12} className="mt-0.5 shrink-0" />
-        <span>{game.note}</span>
-      </div>
+      <div className="mt-2.5 text-xs text-slate-400 leading-relaxed">{game.note}</div>
       <div className="mt-1 text-xs font-mono text-slate-400">fonte: {game.source}</div>
     </div>
   );
@@ -1881,21 +2077,21 @@ function GamesView({ configA, configB, db }) {
   return (
     <div className="space-y-3">
       {/* ---------- Header card (hierarquia: título → base → resolução → configs → nota) ---------- */}
-      <div className="rounded-2xl border border-white/10 p-4 space-y-3" style={{ background: SURFACE }}>
+      <div className="rounded-sm border border-white/10 p-4 space-y-3" style={{ background: SURFACE }}>
         <div className="flex items-center justify-between gap-2">
           <div className="flex items-center gap-2">
             <span
-              className="flex h-8 w-8 items-center justify-center rounded-xl shrink-0"
-              style={{ background: "#F472B61A", color: "#F472B6" }}
+              className="flex h-8 w-8 items-center justify-center rounded-sm shrink-0"
+              style={{ background: `${ACCENT_UTILITY}1A`, color: ACCENT_UTILITY }}
             >
               <Gamepad2 size={16} />
             </span>
             <div>
-              <div className="text-sm font-black tracking-tight text-slate-100">Desempenho em jogos</div>
+              <div className="text-sm font-bold tracking-tight text-slate-100">Desempenho em jogos</div>
               <div className="text-xs text-slate-400 -mt-0.5">estimativa que reage às suas peças</div>
             </div>
           </div>
-          <span className="rounded-full border border-white/10 bg-white/5 px-2 py-0.5 text-xs font-bold text-slate-300">
+          <span className="rounded-sm border border-white/10 bg-white/5 px-2 py-0.5 text-xs font-bold text-slate-300">
             {GAMES.length} jogos
           </span>
         </div>
@@ -1914,10 +2110,10 @@ function GamesView({ configA, configB, db }) {
               <button
                 key={r.id}
                 onClick={() => setResolution(r.id)}
-                className="rounded-lg py-1.5 text-xs font-bold border transition-colors"
+                className="rounded-sm py-1.5 text-xs font-bold border transition-colors"
                 style={
                   resolution === r.id
-                    ? { background: "#F472B620", borderColor: "#F472B660", color: "#F472B6" }
+                    ? { background: `${ACCENT_UTILITY}20`, borderColor: `${ACCENT_UTILITY}60`, color: ACCENT_UTILITY }
                     : { borderColor: "rgba(255,255,255,0.08)", color: "#94A3B8" }
                 }
               >
@@ -1932,16 +2128,16 @@ function GamesView({ configA, configB, db }) {
           {configLines.map((c) => (
             <div
               key={c.key}
-              className="flex items-center gap-2 rounded-lg border px-2.5 py-1.5"
+              className="min-w-0 flex items-center gap-2 rounded-sm border px-2.5 py-1.5"
               style={{ borderColor: `${c.accent}33`, background: `${c.accent}0F` }}
             >
               <span
-                className="flex h-5 w-5 items-center justify-center rounded-md font-mono text-xs font-black shrink-0"
-                style={{ background: c.accent, color: "#0A0D13" }}
+                className="flex h-5 w-5 items-center justify-center rounded-sm font-mono text-xs font-bold shrink-0"
+                style={{ background: c.accent, color: BG }}
               >
                 {c.key}
               </span>
-              <span className="text-xs text-slate-200 truncate">
+              <span className="min-w-0 flex-1 text-xs text-slate-200 truncate">
                 {c.cpu?.name} · {c.gpu?.brand} {c.gpu?.name} · {c.ram?.size}
               </span>
             </div>
@@ -1949,7 +2145,7 @@ function GamesView({ configA, configB, db }) {
         </div>
 
         {/* Nota de honestidade + cap de 144Hz */}
-        <div className="flex items-start gap-1.5 text-xs leading-relaxed" style={{ color: BRAND_CYAN }}>
+        <div className="flex items-start gap-1.5 text-xs leading-relaxed" style={{ color: TEXT_MIST }}>
           <Info size={12} className="mt-0.5 shrink-0" />
           <span>
             Nestas resoluções o FPS é <strong>dominado pela GPU</strong>. Entre estas CPUs (Ultra 7/9) a
@@ -1962,7 +2158,7 @@ function GamesView({ configA, configB, db }) {
       </div>
 
       {/* ---------- Busca interativa de jogo ---------- */}
-      <div className="rounded-2xl border border-white/10 p-3 space-y-2" style={{ background: SURFACE }}>
+      <div className="rounded-sm border border-white/10 p-3 space-y-2" style={{ background: SURFACE }}>
         <div className="relative">
           <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-500" />
           <input
@@ -1970,7 +2166,7 @@ function GamesView({ configA, configB, db }) {
             value={query}
             onChange={(e) => setQuery(e.target.value)}
             placeholder="Buscar um jogo (ex: Cyberpunk, UE5, Path Tracing)…"
-            className="w-full rounded-xl border border-white/10 bg-black/20 pl-9 pr-3 py-2 text-sm text-slate-100 placeholder:text-slate-500 focus:outline-none focus:border-white/30"
+            className="w-full rounded-sm border border-white/10 bg-black/20 pl-9 pr-3 py-2 text-sm text-slate-100 placeholder:text-slate-500 focus:outline-none focus:border-white/30"
           />
           <datalist id="games-list">
             {GAMES.map((g) => (
@@ -1992,7 +2188,7 @@ function GamesView({ configA, configB, db }) {
 
       {/* ---------- Lista (primeiro resultado = card em destaque) ---------- */}
       {filtered.length === 0 ? (
-        <div className="rounded-2xl border border-white/10 p-6 text-center text-sm text-slate-400" style={{ background: SURFACE }}>
+        <div className="rounded-sm border border-white/10 p-6 text-center text-sm text-slate-400" style={{ background: SURFACE }}>
           Nenhum jogo encontrado para “{query}”.
         </div>
       ) : (
@@ -2017,7 +2213,7 @@ function Footer() {
         href={GITHUB_URL}
         target="_blank"
         rel="noreferrer"
-        className="inline-flex items-center gap-1.5 rounded-full border px-3 py-1.5 text-xs font-medium transition-colors"
+        className="inline-flex items-center gap-1.5 rounded-sm border px-3 py-1.5 text-xs font-medium transition-colors"
         style={{
           borderColor: BRAND_GREEN_BORDER,
           background: BRAND_GREEN_BG,
@@ -2094,30 +2290,23 @@ export default function PCConfigComparator() {
     <div className="min-h-screen text-slate-100 pb-24" style={{ background: BG }}>
       {/* Header */}
       <header
-        className="sticky top-0 z-20 backdrop-blur-2xl border-b border-white/10 px-4 pt-4 pb-3"
-        style={{
-          background: "rgba(10,13,19,0.92)",
-          WebkitBackdropFilter: "blur(24px)",
-          backdropFilter: "blur(24px)",
-          boxShadow: "0 8px 24px -8px rgba(0,0,0,0.6)",
-        }}
+        className="sticky top-0 z-20 border-b px-4 pt-4 pb-3"
+        style={{ background: BG, borderColor: BORDER_LINE }}
       >
-        <div className="flex items-center justify-between">
-          <div>
-            <h1 className="text-lg font-black tracking-tight">PC&nbsp;Builder</h1>
-            <p className="text-xs text-slate-400 -mt-0.5">
-              comparador de configurações · Ultra 9/7 + RTX 5070/Ti
-            </p>
-          </div>
+        <div className="flex items-center justify-between gap-2">
+          <h1 className="text-lg font-bold tracking-tight shrink-0">PC&nbsp;Builder</h1>
           <button
             onClick={handleRefresh}
             disabled={refreshing}
-            className="flex items-center gap-1.5 rounded-full border border-white/10 bg-white/5 px-3 py-1.5 text-xs font-medium text-slate-300 active:bg-white/10 disabled:opacity-60"
+            className="flex items-center gap-1 shrink-0 rounded-sm border border-white/10 bg-white/5 px-2 py-1 text-xs font-medium text-slate-300 active:bg-white/10 disabled:opacity-60"
           >
-            <RefreshCw size={12} className={refreshing ? "animate-spin" : ""} />
-            {refreshing ? "checando…" : "Atualizar pesquisa"}
+            <RefreshCw size={11} className={refreshing ? "animate-spin" : ""} />
+            {refreshing ? "checando…" : "Atualizar"}
           </button>
         </div>
+        <p className="text-xs text-slate-400 mt-0.5 truncate">
+          comparador de configurações · Ultra 9/7 + RTX 5070/Ti
+        </p>
 
         <div className="mt-2 flex items-center gap-1.5 text-xs text-slate-400 font-mono">
           <Info size={11} />
@@ -2125,7 +2314,7 @@ export default function PCConfigComparator() {
         </div>
 
         {refreshMsg && (
-          <div className="mt-2 rounded-lg border border-amber-500/20 bg-amber-500/10 px-3 py-2 text-xs text-amber-200">
+          <div className="mt-2 rounded-sm border border-amber-500/20 bg-amber-500/10 px-3 py-2 text-xs text-amber-200">
             {refreshMsg}
           </div>
         )}
@@ -2136,12 +2325,12 @@ export default function PCConfigComparator() {
             { key: "A", label: "Config A", color: CONFIG_THEME.A.accent },
             { key: "B", label: "Config B", color: CONFIG_THEME.B.accent },
             { key: "compare", label: "Comparar", color: "#94A3B8" },
-            { key: "games", label: "Jogos", color: "#F472B6" },
+            { key: "games", label: "Jogos", color: ACCENT_UTILITY },
           ].map((t) => (
             <button
               key={t.key}
               onClick={() => setTab(t.key)}
-              className="rounded-xl py-2 text-xs font-bold border transition-colors"
+              className="rounded-sm py-2 text-xs font-bold border transition-colors"
               style={
                 tab === t.key
                   ? { background: `${t.color}20`, borderColor: `${t.color}60`, color: t.color }
@@ -2183,7 +2372,7 @@ export default function PCConfigComparator() {
           <GamesView configA={configA} configB={configB} db={db} />
         )}
 
-        <div className="mt-6 mb-4 rounded-xl border border-white/5 bg-white/5 p-3 text-xs leading-relaxed text-slate-400">
+        <div className="mt-6 mb-4 rounded-sm border border-white/5 bg-white/5 p-3 text-xs leading-relaxed text-slate-400">
           Preços "de vitrine" (à vista/PIX quando disponível), só produtos novos —
           nenhum item aqui é open box. Estoque de placa de vídeo no KaBuM muda em
           minutos: confira o link antes de comprar.

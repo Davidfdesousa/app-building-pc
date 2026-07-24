@@ -86,11 +86,64 @@ requests server-side no plano free) — não reintroduzir.
   e mantêm o último preço conhecido.
 - **Config A/B defaults** (`DEFAULT_A`, `DEFAULT_B`) devem apontar só para itens `inStock`.
 
+## Gotcha de flex/grid + truncate (não repetir bug antigo)
+
+Um item flex ou grid **não encolhe abaixo do min-content do próprio conteúdo** por padrão
+(`min-width: auto`), mesmo que o filho tenha `truncate`. Se o texto usa `white-space: nowrap`
+(parte do `truncate`), o min-content vira a largura da linha inteira sem quebrar — isso
+"empurra" a largura pra cima por TODOS os níveis de flex/grid aninhados até achar um que
+tenha `min-w-0` explícito. Já causou overflow real (linhas de config na aba Jogos vazando
+pro fora do card). Regra: qualquer `<span className="truncate">` dentro de um `flex`/`grid`
+precisa de `min-w-0` **em si e em cada container flex/grid ancestral** até a largura ficar
+de fato limitada — não basta pôr `min-w-0` só no elemento com `truncate`.
+
+## Busca por nome (só GPU, por enquanto)
+
+Além de colar link, dá pra digitar o nome (`NameSearchInput`, ex: "RTX 5070") e escolher entre
+sugestões reais do KaBuM. `searchKabumGpus`/`searchKabumProducts` leem
+`kabum.com.br/busca/<query>` via `r.jina.ai` e fazem regex sobre os links markdown
+`](https://www.kabum.com.br/produto/ID/slug)`, pegando o texto logo antes do link como
+nome+preço. `looksLikeGpu` filtra o ruído (notebooks, PC Gamer completo, kits de upgrade que
+só *mencionam* uma GPU) por palavra-chave — testado contra "rtx 5070", "rx 9070", "rtx 5060 ti"
+com ~95% de precisão. Escolher uma sugestão roda `importFromKabumLink` na URL encontrada — a
+busca é só descoberta, a extração final usa o mesmo pipeline confiável do link colado.
+**Escopo: só GPU por pedido explícito.** Pra estender a outra categoria, escrever um
+`looksLike<Categoria>` equivalente (specs/palavras-chave mudam por categoria) e renderizar
+`<NameSearchInput searchFn={...} />` condicionalmente no `CategoryAccordion` daquele `catKey`.
+
 ## Gotcha de Tailwind (não repetir bug antigo)
 
 O runtime usa uma folha Tailwind **pré-buildada, sem JIT**. Qualquer classe com colchetes
-(`bg-[#10141C]`, `text-[12px]`, `bg-white/[0.03]`, `shadow-[...]`) **falha silenciosamente**.
+(`bg-[#1C2836]`, `text-[12px]`, `bg-white/[0.03]`, `shadow-[...]`) **falha silenciosamente**.
 Cores/superfícies escuras vão por `style` inline (constantes `BG`, `SURFACE`, `BRAND_*`).
+
+## Sistema visual — Steam (design-system-base.md)
+
+O app segue o design system exportado em [`design-system-base.md`](design-system-base.md)
+(baseado na Steam): dark, utilitário, densidade de marketplace, geometria quase quadrada,
+accents restritos em azul-acinzentado, sombra mínima — bordas fazem a separação.
+
+- **Tokens** (`src/App.jsx`, perto de `CONFIG_THEME`): `BG` = `#0F1924` (Deep Background Navy),
+  `SURFACE` = `#1C2836` (Store Panel Navy), `BORDER_LINE` = `#313943` (Gunmetal Line),
+  `TEXT_MIST` = `#C6D4DF` (texto secundário/notas). `BRAND_GREEN` é mantido, mas desaturado —
+  a Steam usa cor para sinalizar desconto/sentimento de review, então um verde semântico
+  (badge de "melhor custo-benefício", estoque, tiers de FPS) é consistente com o sistema;
+  só não pode virar decoração solta.
+- **Config A/B**: `CONFIG_THEME.A/B.accent` ficaram dentro da família azul-acinzentada
+  (`#4C86AC` / `#93A0AC`) em vez do ciano/laranja neon anterior. Essa distinção A-vs-B foi
+  **mantida de propósito** (é funcional — rastreia "qual config" nas barras de preço/FPS pela
+  página toda), mas sem sair do restrained palette. `ACCENT_UTILITY` (`#6E92A8`) é a cor
+  compartilhada de seções que não são um config (aba Jogos, card em destaque).
+- **Border radius**: **squared globalmente** — `rounded-2xl/xl/lg/md/full` viraram `rounded-sm`
+  em todo o arquivo (inclui badges, botões, barras de progresso). Steam evita pill shapes;
+  não reintroduzir `rounded-full` em componente novo.
+- **Header**: sem `backdrop-blur`/glow — fundo sólido `BG` + `border-b` em `BORDER_LINE`,
+  seguindo "Flat: no shadow, dark fill, hard edges" do doc.
+- **Tipografia**: pesos de heading ficaram em `font-bold` (700), não `font-black` (900) —
+  a Steam usa 700 como peso máximo evidenciado.
+- Badges semânticos (`Badge` tones ok/warn/value, `fpsTier`, `demandTier`) continuam coloridos
+  de propósito — são sinais funcionais (estoque, desconto, performance), não decoração, e a
+  própria Steam usa esse padrão (badges de desconto/review coloridos sobre chrome neutro).
 
 ## Como fazer tarefas comuns
 
