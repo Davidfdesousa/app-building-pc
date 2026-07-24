@@ -97,19 +97,39 @@ pro fora do card). Regra: qualquer `<span className="truncate">` dentro de um `f
 precisa de `min-w-0` **em si e em cada container flex/grid ancestral** até a largura ficar
 de fato limitada — não basta pôr `min-w-0` só no elemento com `truncate`.
 
-## Busca por nome (só GPU, por enquanto)
+## Busca por nome (todas as categorias) — link colado está desativado
 
-Além de colar link, dá pra digitar o nome (`NameSearchInput`, ex: "RTX 5070") e escolher entre
-sugestões reais do KaBuM. `searchKabumGpus`/`searchKabumProducts` leem
-`kabum.com.br/busca/<query>` via `r.jina.ai` e fazem regex sobre os links markdown
-`](https://www.kabum.com.br/produto/ID/slug)`, pegando o texto logo antes do link como
-nome+preço. `looksLikeGpu` filtra o ruído (notebooks, PC Gamer completo, kits de upgrade que
-só *mencionam* uma GPU) por palavra-chave — testado contra "rtx 5070", "rx 9070", "rtx 5060 ti"
-com ~95% de precisão. Escolher uma sugestão roda `importFromKabumLink` na URL encontrada — a
-busca é só descoberta, a extração final usa o mesmo pipeline confiável do link colado.
-**Escopo: só GPU por pedido explícito.** Pra estender a outra categoria, escrever um
-`looksLike<Categoria>` equivalente (specs/palavras-chave mudam por categoria) e renderizar
-`<NameSearchInput searchFn={...} />` condicionalmente no `CategoryAccordion` daquele `catKey`.
+Único jeito de adicionar peça fora do catálogo hoje é digitar o nome (`NameSearchInput`, ex:
+"RTX 5070", "Ryzen 7 7800X3D") e escolher entre sugestões reais do KaBuM. `LinkImportInput`
+(colar link) foi **comentado** em 2026-07-23 — a função ainda existe no arquivo (bloco `/* ... */`
+logo acima de `CategoryAccordion`), só não é renderizada. Pra reativar: descomentar o bloco,
+o `<LinkImportInput .../>` no `CategoryAccordion`, e restaurar o import `Link as LinkIcon`
+de `lucide-react`.
+
+**Como funciona**: `searchKabumProducts` lê `kabum.com.br/busca/<query>` via `r.jina.ai` e
+faz regex sobre os links markdown `](https://www.kabum.com.br/produto/ID/slug)`, extraindo o
+texto logo antes de cada link como nome+preço. `CATEGORY_MATCHERS[catKey]` (include/exclude
+por regex) filtra o ruído — notebooks, "PC Gamer" completo, kits de upgrade que só
+*mencionam* a peça — por categoria; `searchKabumByCategory(catKey, query, signal)` aplica o
+filtro certo. Testado contra várias queries reais por categoria (cpu/gpu/ram/mobo/psu/ssd),
+~95%+ de precisão. Escolher uma sugestão roda `importFromKabumLink` na URL encontrada — a
+busca é só descoberta, a extração final usa o mesmo pipeline confiável de sempre.
+
+**Gotcha de parsing**: o limite entre "markdown da imagem anterior" e "início do nome do
+produto" NÃO pode ser "o último `)` antes do link" — nomes de produto costumam ter parênteses
+próprios (ex: "32GB**(2x16GB)**"), o que cortava o nome ali por engano. A extração usa o
+último match completo de `\]\([^)]*\)` (fechamento real de um link/imagem markdown) como
+fronteira. Também há uma checagem de sanidade (nome precisa ter espaço e não pode conter
+`http`/`.com`) pra descartar os raros casos em que nem isso resolve (URL de imagem longa
+demais pra caber na janela de 400 chars analisada).
+
+**Performance**: `r.jina.ai` cacheia agressivamente do lado deles — uma query repetida volta
+em ~1s, mas a **primeira vez que qualquer query exata é buscada pode levar até ~10s** (ele
+renderiza a página do zero). Isso é o gargalo dominante e não dá pra eliminar do nosso lado;
+em vez disso: `X-Timeout: 8` limita o pior caso, `searchResultsCache` (Map em memória, por
+sessão) deixa buscas repetidas/backspace instantâneas, e `NameSearchInput` cancela buscas
+obsoletas via `AbortController` quando o usuário continua digitando (evita empilhar várias
+requisições de ~10s). Se a proxy cair, `NameSearchInput` mostra fallback manual (nome+preço).
 
 ## Gotcha de Tailwind (não repetir bug antigo)
 

@@ -17,7 +17,6 @@ import {
   Tag,
   PackageCheck,
   PackageX,
-  Link as LinkIcon,
   Search,
   Star,
 } from "lucide-react";
@@ -1064,34 +1063,81 @@ async function importFromKabumLink(rawUrl) {
 // Search-by-name — lets the user type "RTX 5070" instead of pasting a link.
 // Reads KaBuM's own search results page (kabum.com.br/busca/<query>) through
 // the same r.jina.ai reader used for single product pages, then regex-parses
-// the markdown link list. Tested against several real queries (rtx 5070, rx
-// 9070, rtx 5060 ti) — see conversation/commit history for the validation.
+// the markdown link list. Tested against several real queries per category
+// (rtx 5070, rx 9070, rtx 5060 ti, ryzen 7 7800x3d, ddr5 32gb…) — see
+// conversation/commit history for the validation.
 //
-// The listing mixes real GPUs with notebooks, PC-Gamer bundles and upgrade
-// kits that merely *mention* a GPU model, so `looksLikeGpu` filters those
-// out by keyword. This step is discovery only — picking a suggestion still
-// runs the full `importFromKabumLink` against its URL, so the actual add
-// gets the same extraction (specs, accurate price) as pasting a link by hand.
-// Scoped to GPU for now (per request) — extend `looksLikeGpu`-style filters
-// per-category before wiring this into other accordions.
+// The listing mixes real matches with notebooks, "PC Gamer" bundles and kits
+// that merely *mention* a part (e.g. a notebook listing that has "RTX 5070"
+// in its title), so CATEGORY_MATCHERS filters those out by keyword per
+// category. This step is discovery only — picking a suggestion still runs
+// the full `importFromKabumLink` against its URL, so the actual add gets the
+// same extraction (specs, accurate price) as pasting a link by hand.
+//
+// Perf note: r.jina.ai caches aggressively — a repeated query resolves in
+// ~1s, but the FIRST time any exact query string is looked up (cold cache on
+// their end) can take up to ~10s, since it's rendering the KaBuM page fresh.
+// That's the dominant cost and can't be eliminated client-side, so instead:
+// `X-Timeout` caps the worst case, `searchResultsCache` makes repeat/backspace
+// searches instant within the session, and NameSearchInput aborts superseded
+// in-flight requests so fast typing doesn't pile up several ~10s fetches.
 // ----------------------------------------------------------------------------
-function looksLikeGpu(name) {
+const CATEGORY_MATCHERS = {
+  cpu: {
+    include: /processador\b/i,
+    exclude: /notebook|placa.m[aã]e|cooler\b|water cooler|fonte\b/i,
+  },
+  gpu: {
+    include: /placa de v[ií]deo|^gpu\b|gddr(5|6x|6|7)/i,
+    exclude: /notebook|desktop\b|pc gamer|kit upgrade|processador\b|monitor\b|mouse\b|teclado\b|headset\b|cadeira\b|fonte\b|placa.m[aã]e/i,
+  },
+  ram: {
+    include: /mem[oó]ria ram|\bddr[345]\b/i,
+    exclude: /notebook|so-?dimm|placa.m[aã]e|\bssd\b|ps5|xbox|pendrive/i,
+  },
+  mobo: {
+    include: /placa[- ]?m[aã]e\b/i,
+    exclude: /notebook|water cooler/i,
+  },
+  psu: {
+    include: /\bfonte\b/i,
+    exclude: /notebook|carregador|nobreak|alimenta[cç][ãa]o (do |de )?notebook/i,
+  },
+  ssd: {
+    include: /\bssd\b/i,
+    exclude: /adaptador|gaveta\b|case\b.*ssd/i,
+  },
+};
+
+const SEARCH_PLACEHOLDERS = {
+  cpu: "Ex: Ryzen 7 7800X3D, Core Ultra 9 285K…",
+  gpu: "Ex: RTX 5070, RX 9070 XT…",
+  ram: "Ex: Corsair Vengeance 32GB, DDR5 6000…",
+  mobo: "Ex: B850, Z890 Aorus…",
+  psu: "Ex: fonte 850W Gold…",
+  ssd: "Ex: SSD NVMe 2TB…",
+};
+
+function matchesCategory(catKey, name) {
+  const matcher = CATEGORY_MATCHERS[catKey];
+  if (!matcher) return true;
   const n = name.toLowerCase();
-  if (/notebook|desktop|pc gamer|kit upgrade|processador\b|monitor|mouse|teclado|headset|cadeira|fonte\b|placa.m[aã]e/.test(n)) {
-    return false;
-  }
-  return /placa de v[ií]deo|^gpu\b|gddr(5|6x|6|7)/.test(n);
+  if (matcher.exclude?.test(n)) return false;
+  return matcher.include.test(n);
 }
 
-async function searchKabumProducts(query) {
+async function searchKabumProducts(query, signal) {
   const url = `https://www.kabum.com.br/busca/${encodeURIComponent(query)}`;
   let text;
   try {
-    text = await fetch(JINA_READER_PREFIX + url).then((r) => {
-      if (!r.ok) throw new Error(`jina respondeu ${r.status}`);
-      return r.text();
+    const res = await fetch(JINA_READER_PREFIX + url, {
+      headers: { "X-Timeout": "8" }, // cap worst-case cold-cache render time
+      signal,
     });
-  } catch {
+    if (!res.ok) throw new Error(`jina respondeu ${res.status}`);
+    text = await res.text();
+  } catch (err) {
+    if (err.name === "AbortError") throw err; // superseded by a newer search — caller ignores this
     throw new Error("Não consegui buscar agora (proxy indisponível). Tente de novo em instantes.");
   }
 
@@ -1105,18 +1151,32 @@ async function searchKabumProducts(query) {
     seenIds.add(id);
     const link = m[1];
 
-    const windowText = text.slice(Math.max(0, m.index - 300), m.index);
-    const lastParen = windowText.lastIndexOf(")");
-    let nameChunk = (lastParen >= 0 ? windowText.slice(lastParen + 1) : windowText)
+    const windowText = text.slice(Math.max(0, m.index - 400), m.index);
+    // Boundary = end of the preceding image markdown `](url)`, NOT just the
+    // last literal ")" — product names routinely contain their own parens
+    // (e.g. "32GB(2x16GB)"), which would otherwise get mistaken for the
+    // image's closing paren and truncate the name right after them.
+    const imgCloseRe = /\]\([^)]*\)/g;
+    let imgCloseEnd = -1;
+    let imgMatch;
+    while ((imgMatch = imgCloseRe.exec(windowText))) {
+      imgCloseEnd = imgMatch.index + imgMatch[0].length;
+    }
+    let nameChunk = (imgCloseEnd >= 0 ? windowText.slice(imgCloseEnd) : windowText)
       .replace(/Avalia[cç][ãa]o[^R]*?\d\.\d de 5\.0/gi, "")
       .replace(/Produto Patrocinado/gi, "")
       .replace(/Frete gr[aá]tis\*?/gi, "")
+      .replace(/Selo:[A-Z0-9 ]+/gi, "")
       .trim();
 
     const priceMatches = [...nameChunk.matchAll(/R\$\s?([\d.,]+)/g)];
     const nameEndIdx = nameChunk.search(/R\$/);
     const name = (nameEndIdx > 0 ? nameChunk.slice(0, nameEndIdx) : nameChunk).trim();
-    if (!name || name.length < 4) continue;
+    // Sanity check — on rare entries the image markdown boundary isn't found
+    // within the window (very long image URL), leaving a raw URL fragment
+    // instead of a real product name. Real names always have spaces; leaked
+    // URLs/slugs don't.
+    if (!name || name.length < 4 || /https?:\/\/|\.com(\.br)?\b/i.test(name) || !name.includes(" ")) continue;
 
     const hasDiscount = /Desconto/i.test(nameChunk);
     const priceRaw = priceMatches.length
@@ -1128,9 +1188,19 @@ async function searchKabumProducts(query) {
   return results;
 }
 
-async function searchKabumGpus(query) {
-  const results = await searchKabumProducts(query);
-  return results.filter((r) => looksLikeGpu(r.name));
+// Session-only cache (resolved results, not promises — an aborted/failed
+// lookup never gets cached, so it's retried next time) so repeat or
+// backspace-then-retype searches within the same visit skip the network
+// entirely instead of re-paying the cold-cache cost.
+const searchResultsCache = new Map();
+
+async function searchKabumByCategory(catKey, query, signal) {
+  const cacheKey = `${catKey}::${query.trim().toLowerCase()}`;
+  if (searchResultsCache.has(cacheKey)) return searchResultsCache.get(cacheKey);
+  const raw = await searchKabumProducts(query, signal);
+  const filtered = raw.filter((r) => matchesCategory(catKey, r.name));
+  searchResultsCache.set(cacheKey, filtered);
+  return filtered;
 }
 
 // ----------------------------------------------------------------------------
@@ -1458,30 +1528,39 @@ function NameSearchInput({ accent, onAdd, searchFn, placeholder }) {
   const [status, setStatus] = useState("idle"); // idle | searching | error
   const [errorMsg, setErrorMsg] = useState("");
   const [importingId, setImportingId] = useState(null);
+  const [manual, setManual] = useState({ name: "", price: "" });
   const debounceRef = useRef(null);
+  const abortRef = useRef(null);
 
   useEffect(() => {
     const q = query.trim();
     if (debounceRef.current) clearTimeout(debounceRef.current);
+    if (abortRef.current) abortRef.current.abort(); // supersede any in-flight search
     if (q.length < 3) {
       setResults([]);
       setStatus("idle");
       return undefined;
     }
     debounceRef.current = setTimeout(async () => {
+      const controller = new AbortController();
+      abortRef.current = controller;
       setStatus("searching");
       setErrorMsg("");
       try {
-        const list = await searchFn(q);
+        const list = await searchFn(q, controller.signal);
         setResults(list.slice(0, 8));
         setStatus("idle");
       } catch (err) {
+        if (err.name === "AbortError") return; // a newer keystroke already replaced this search
         setResults([]);
         setErrorMsg(err.message || "Não consegui buscar agora.");
         setStatus("error");
       }
-    }, 450);
-    return () => clearTimeout(debounceRef.current);
+    }, 400);
+    return () => {
+      clearTimeout(debounceRef.current);
+      if (abortRef.current) abortRef.current.abort();
+    };
   }, [query, searchFn]);
 
   const handlePick = async (result) => {
@@ -1501,6 +1580,28 @@ function NameSearchInput({ accent, onAdd, searchFn, placeholder }) {
     }
   };
 
+  const handleManualAdd = () => {
+    const name = manual.name.trim();
+    if (!name) return;
+    const price = parsePriceValue(manual.price) ?? 0;
+    onAdd({
+      id: `custom-${Date.now()}`,
+      name,
+      brand: guessBrandFromName(name),
+      specs: "Adicionado manualmente (busca não encontrou o produto).",
+      price,
+      installment: price ? `10x ${formatBRL(price / 10)}` : "—",
+      source: "KaBuM!",
+      link: "",
+      inStock: true,
+      imported: true,
+    });
+    setManual({ name: "", price: "" });
+    setQuery("");
+    setResults([]);
+    setStatus("idle");
+  };
+
   return (
     <div className="rounded-sm border border-white/10 bg-white/5 p-2.5 space-y-2">
       <div className="flex items-center gap-1.5 text-xs text-slate-400">
@@ -1516,13 +1617,38 @@ function NameSearchInput({ accent, onAdd, searchFn, placeholder }) {
       />
 
       {status === "searching" && (
-        <div className="text-xs text-slate-400">buscando…</div>
+        <div className="text-xs text-slate-400">
+          buscando no KaBuM!… (a primeira busca de um termo novo pode levar alguns segundos)
+        </div>
       )}
 
       {status === "error" && (
-        <div className="flex items-start gap-1 text-xs text-amber-300/90">
-          <AlertTriangle size={12} className="mt-0.5 shrink-0" />
-          <span>{errorMsg}</span>
+        <div className="space-y-2">
+          <div className="flex items-start gap-1 text-xs text-amber-300/90">
+            <AlertTriangle size={12} className="mt-0.5 shrink-0" />
+            <span>{errorMsg}</span>
+          </div>
+          <div className="text-xs text-slate-400">Ou preencha na mão:</div>
+          <input
+            placeholder="Nome do produto"
+            value={manual.name}
+            onChange={(e) => setManual((m) => ({ ...m, name: e.target.value }))}
+            className="w-full rounded-sm border border-white/10 bg-black/20 px-2.5 py-1.5 text-xs text-slate-100 placeholder:text-slate-500 focus:outline-none"
+          />
+          <input
+            placeholder="Preço (ex: 1299,99)"
+            value={manual.price}
+            onChange={(e) => setManual((m) => ({ ...m, price: e.target.value }))}
+            className="w-full rounded-sm border border-white/10 bg-black/20 px-2.5 py-1.5 text-xs text-slate-100 placeholder:text-slate-500 focus:outline-none"
+          />
+          <button
+            onClick={handleManualAdd}
+            disabled={!manual.name.trim()}
+            className="w-full rounded-sm py-1.5 text-xs font-bold disabled:opacity-50"
+            style={{ background: `${accent}20`, color: accent, border: `1px solid ${accent}50` }}
+          >
+            Adicionar mesmo assim
+          </button>
         </div>
       )}
 
@@ -1555,6 +1681,12 @@ function NameSearchInput({ accent, onAdd, searchFn, placeholder }) {
   );
 }
 
+// Busca por link colado — desativada em 2026-07-23 em favor da busca por nome
+// (NameSearchInput), que já cobre todas as categorias e não exige que o
+// usuário ache/copie o link do KaBuM primeiro. Mantido comentado (não
+// removido) caso precise voltar a oferecer a opção de colar link direto —
+// nesse caso, restaurar também o import `Link as LinkIcon` de "lucide-react".
+/*
 function LinkImportInput({ onAdd, accent }) {
   const [url, setUrl] = useState("");
   const [status, setStatus] = useState("idle"); // idle | loading | error
@@ -1677,6 +1809,7 @@ function LinkImportInput({ onAdd, accent }) {
     </div>
   );
 }
+*/
 
 function CategoryAccordion({ catKey, label, Icon, items, selectedId, onSelect, onAddCustomItem, accent, openKey, setOpenKey }) {
   const isOpen = openKey === catKey;
@@ -1721,18 +1854,15 @@ function CategoryAccordion({ catKey, label, Icon, items, selectedId, onSelect, o
 
       {isOpen && (
         <div className="border-t border-white/10 p-3 space-y-2 bg-black/20">
-          {catKey === "gpu" && (
-            <NameSearchInput
-              accent={accent}
-              searchFn={searchKabumGpus}
-              placeholder="Ex: RTX 5070, RX 9070 XT…"
-              onAdd={(item) => onAddCustomItem(catKey, item)}
-            />
-          )}
-          <LinkImportInput
+          <NameSearchInput
             accent={accent}
+            searchFn={(q, signal) => searchKabumByCategory(catKey, q, signal)}
+            placeholder={SEARCH_PLACEHOLDERS[catKey]}
             onAdd={(item) => onAddCustomItem(catKey, item)}
           />
+          {/* Busca por link colado — desativada em favor da busca por nome acima.
+              O componente continua definido (LinkImportInput) caso precise voltar. */}
+          {/* <LinkImportInput accent={accent} onAdd={(item) => onAddCustomItem(catKey, item)} /> */}
           {catKey === "gpu" && (
             <div className="flex items-start gap-1.5 text-xs text-slate-400 leading-relaxed px-1 pb-1">
               <Info size={11} className="mt-0.5 shrink-0" />
